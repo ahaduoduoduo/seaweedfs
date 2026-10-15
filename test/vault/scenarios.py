@@ -250,6 +250,7 @@ def run(lab):
     lab.config['checkpoint_seconds']=2
     lab.config_path.write_text(json.dumps(lab.config))
     lab.start_vault()
+    lab.put('notes','automatic-checkpoint-update',[(lab.manifest('n002-json',text,1,'application/json'),text)],'notebook-travel')
     def auto_complete():
         states=lab.admin_request('GET','/v1/checkpoints')['checkpoints']
         return next((item for item in states if item['state']=='complete' and item['id']!=cp),None)

@@ -9,7 +9,7 @@
   "origins": ["https://notes.example.com", "https://photos.example.com"],
   "pack_mib": 64,
   "staging_mib": 8192,
-  "seal_seconds": 60,
+  "seal_seconds": 0,
   "checkpoint_seconds": 3600,
   "upload_ttl_seconds": 86400,
   "lease_seconds": 120,

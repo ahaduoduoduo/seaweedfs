@@ -42,7 +42,7 @@ async function list(append = false) {
     name.className = "name";
     name.textContent = o.metadata?.name || o.id;
     meta.className = "meta";
-    meta.textContent = `${(o.size / 1048576).toFixed(2)} MiB · 版本 ${o.revision} · ${{ accepted: "等待封存", packed: "正在上传", remote: "已保存至云端" }[o.state] || o.state}`;
+    meta.textContent = `${(o.size / 1048576).toFixed(2)} MiB · 版本 ${o.revision} · ${{ accepted: "已保存至 NAS，等待满包", packed: "正在上传", remote: "已保存至云端" }[o.state] || o.state}`;
     left.append(name, meta);
     button.textContent = "读取";
     button.onclick = () =>
@@ -105,6 +105,7 @@ $("connect").onclick = () =>
     await list();
     $("send").disabled = false;
     $("refresh").disabled = false;
+    $("sync").disabled = false;
     status("已连接 " + client.space);
   });
 $("refresh").onclick = () => run(() => list());
@@ -116,7 +117,7 @@ $("send").onclick = () =>
     $("send").disabled = true;
     try {
       status("正在校验并上传");
-      const batch = await client.putBatch({
+      await client.putBatch({
         group: $("group").value,
         objects: files.map((blob) => ({
           id: crypto.randomUUID(),
@@ -124,15 +125,25 @@ $("send").onclick = () =>
           metadata: { name: blob.name },
         })),
       });
-      status("已提交 " + files.length + " 个文件，后台自动封存");
+      status("已保存至 NAS，可立即读取；满包或手动同步后保存至云端");
       $("progress").hidden = true;
       $("upload").value = "";
       await list();
-      await client.waitRemote(batch.id);
-      await list();
-      status("这组内容已保存至云端");
     } finally {
       $("send").disabled = false;
+    }
+  });
+$("sync").onclick = () =>
+  run(async () => {
+    $("sync").disabled = true;
+    try {
+      status("正在同步至云端");
+      const pending = await client.flush();
+      for (const id of pending.batches) await client.waitRemote(id);
+      await list();
+      status("同步完成，内容已保存至云端");
+    } finally {
+      $("sync").disabled = false;
     }
   });
 $("closePreview").onclick = () => {

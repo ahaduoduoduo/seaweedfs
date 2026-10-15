@@ -62,9 +62,6 @@ func ReadConfig(path string) (Config, error) {
 	if c.StagingMiB == 0 {
 		c.StagingMiB = 8192
 	}
-	if c.SealSeconds == 0 {
-		c.SealSeconds = 60
-	}
 	if c.CheckpointSeconds == 0 {
 		c.CheckpointSeconds = 3600
 	}
@@ -74,7 +71,7 @@ func ReadConfig(path string) (Config, error) {
 	if c.LeaseSeconds == 0 {
 		c.LeaseSeconds = 120
 	}
-	if c.StagingMiB > 1<<30 || c.Dir == "" || len(c.Spaces) == 0 || c.PackMiB < 8 || c.PackMiB > 64 || c.StagingMiB < 2*c.PackMiB || c.SealSeconds < 1 || c.CheckpointSeconds < 1 || c.UploadTTLSeconds < 60 || c.LeaseSeconds < 10 || c.LeaseSeconds > 600 {
+	if c.StagingMiB > 1<<30 || c.Dir == "" || len(c.Spaces) == 0 || c.PackMiB < 8 || c.PackMiB > 64 || c.StagingMiB < 2*c.PackMiB || c.SealSeconds < 0 || c.CheckpointSeconds < 1 || c.UploadTTLSeconds < 60 || c.LeaseSeconds < 10 || c.LeaseSeconds > 600 {
 		return c, fmt.Errorf("invalid vault size, timing or directory configuration")
 	}
 	for _, raw := range []string{c.Gateway, c.PublicURL} {

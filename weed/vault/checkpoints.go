@@ -111,13 +111,18 @@ func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) autoCheckpoint(ctx context.Context) {
 	var id string
+	flushPending := true
 	e := s.db.QueryRow("SELECT id FROM checkpoints WHERE state='queued' ORDER BY created LIMIT 1").Scan(&id)
 	if errors.Is(e, sql.ErrNoRows) {
+		flushPending = false
 		var last int64
 		s.db.QueryRow("SELECT coalesce(max(created),0) FROM checkpoints").Scan(&last)
+		if time.Now().Unix()-max(last, s.started) < s.config.CheckpointSeconds {
+			return
+		}
 		var n int
-		s.db.QueryRow("SELECT count(*) FROM versions").Scan(&n)
-		if n == 0 || time.Now().Unix()-max(last, s.started) < s.config.CheckpointSeconds {
+		s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM versions WHERE state='remote' AND checkpoint='')").Scan(&n)
+		if n == 0 {
 			return
 		}
 		id = randomID()
@@ -130,7 +135,7 @@ func (s *Server) autoCheckpoint(ctx context.Context) {
 	if e != nil {
 		return
 	}
-	ticket, e := s.checkpoint(ctx, id)
+	ticket, e := s.checkpoint(ctx, id, flushPending)
 	if e != nil {
 		s.db.Exec("UPDATE checkpoints SET state='failed',error=? WHERE id=?", e.Error(), id)
 		s.lastError.Store(e.Error())
@@ -161,20 +166,22 @@ func (s *Server) exactReceipt(ctx context.Context, space, key string) (Receipt, 
 	}
 	return Receipt{space, b}, e
 }
-func (s *Server) checkpoint(ctx context.Context, id string) ([]byte, error) {
+func (s *Server) checkpoint(ctx context.Context, id string, flushPending bool) ([]byte, error) {
 	s.work.Lock()
 	defer s.work.Unlock()
 	s.mu.Lock()
 	s.maintenance.Store(true)
 	s.mu.Unlock()
 	defer s.maintenance.Store(false)
-	if e := s.process(ctx, true); e != nil {
-		return nil, e
-	}
-	var pending int
-	s.db.QueryRow("SELECT count(*) FROM batches WHERE state IN ('accepted','packed')").Scan(&pending)
-	if pending != 0 {
-		return nil, fmt.Errorf("committed data still awaiting cloud receipts")
+	if flushPending {
+		if e := s.process(ctx, true); e != nil {
+			return nil, e
+		}
+		var pending int
+		s.db.QueryRow("SELECT count(*) FROM batches WHERE state IN ('accepted','packed')").Scan(&pending)
+		if pending != 0 {
+			return nil, fmt.Errorf("committed data still awaiting cloud receipts")
+		}
 	}
 	dir, e := os.MkdirTemp(filepath.Join(s.config.Dir, "checkpoints"), "work-")
 	if e != nil {
@@ -189,7 +196,7 @@ func (s *Server) checkpoint(ctx context.Context, id string) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	_, e = db.Exec("UPDATE versions SET checkpoint=?; DELETE FROM uploads WHERE batch IN (SELECT id FROM batches WHERE state IN ('uploading','aborted')); DELETE FROM batches WHERE state IN ('uploading','aborted'); DELETE FROM read_sessions; DELETE FROM checkpoints WHERE state!='complete'; PRAGMA wal_checkpoint(TRUNCATE)", id)
+	e = cloudSnapshot(db, id)
 	e = errors.Join(e, db.Close())
 	if e != nil {
 		return nil, e
@@ -202,7 +209,7 @@ func (s *Server) checkpoint(ctx context.Context, id string) ([]byte, error) {
 	// Keyset pagination keeps memory bounded and reads only local SQL rows.
 	after := ""
 	for {
-		rows, e := s.db.Query("SELECT id,space,remote_key FROM packs WHERE id>? ORDER BY id LIMIT 256", after)
+		rows, e := s.db.Query("SELECT id,space,remote_key FROM packs WHERE id>? AND state='remote' ORDER BY id LIMIT 256", after)
 		if e != nil {
 			receipts.Close()
 			return nil, e
@@ -312,7 +319,7 @@ func (s *Server) checkpoint(ctx context.Context, id string) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	_, e = tx.Exec("UPDATE versions SET checkpoint=?", id)
+	_, e = tx.Exec("UPDATE versions SET checkpoint=? WHERE state='remote'", id)
 	if e == nil {
 		_, e = tx.Exec("UPDATE checkpoints SET state='complete',ticket=? WHERE id=?", string(ticket), id)
 	}

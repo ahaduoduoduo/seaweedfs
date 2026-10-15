@@ -23,7 +23,9 @@ Updated: 2026-10-15
 - `weed/command/vault.go`: service and cloud restore command entry points.
 - `weed/vault/config.go`, `server.go`, `auth.go`: configuration, HTTP lifecycle, per-space tokens and CORS.
 - `database.go`, `batches.go`, `objects.go`: authoritative catalog, resumable uploads, atomic revisions and read plans.
-- `packing.go`, `worker.go`: AES-GCM needle packs, relation ordering, automatic sealing and serial remote upload.
+- `packing.go`, `worker.go`: AES-GCM needle packs, relation ordering, capacity-driven sealing, resumable full-pack prefixes and serial remote upload.
+- `sealing.go`: business-level packing eligibility and durable manual sync requests.
+- `checkpoint_snapshot.go`: project complete cloud revisions into a recoverable catalog without flushing local edits.
 - `leases.go`: independent persistent read sessions and optional ciphertext proxy.
 - `checkpoints.go`, `restore.go`: coordinated encrypted catalog/receipt checkpoints and offline restoration.
 - `weed/vault/assets/`: embedded browser demo and bounded streaming WebCrypto SDK.

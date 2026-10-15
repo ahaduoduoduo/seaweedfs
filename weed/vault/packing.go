@@ -123,7 +123,7 @@ type packedChunk struct {
 
 // A whole relation batch stays in one pack whenever it fits. Oversized batches
 // use consecutive packs. Group + sort_key clusters neighboring album entries.
-func (s *Server) packGroup(space, group string, ids []string) error {
+func (s *Server) packBatches(space string, ids []string, sealTail bool) error {
 	var writers []*packWriter
 	var chunks []packedChunk
 	var current *packWriter
@@ -156,8 +156,19 @@ func (s *Server) packGroup(space, group string, ids []string) error {
 			return e
 		}
 		var estimated int64
+		type position struct {
+			offset int64
+			index  int
+		}
+		positions := map[string]position{}
 		for _, u := range items {
-			estimated += u.Size + ((u.Size+ChunkSize-1)/ChunkSize)*64
+			var pos position
+			if e = s.db.QueryRow("SELECT coalesce(max(plain_offset+plain_size),0),count(*) FROM chunks WHERE vid=?", u.VID).Scan(&pos.offset, &pos.index); e != nil {
+				return e
+			}
+			positions[u.VID] = pos
+			remaining := u.Size - pos.offset
+			estimated += remaining + ((remaining+ChunkSize-1)/ChunkSize)*64
 		}
 		if current != nil && estimated <= cap-8 && current.size+estimated > cap {
 			if e := current.close(); e != nil {
@@ -166,14 +177,19 @@ func (s *Server) packGroup(space, group string, ids []string) error {
 			current = nil
 		}
 		for _, u := range items {
-			if u.Size == 0 {
+			pos := positions[u.VID]
+			if u.Size == pos.offset {
 				continue
 			}
 			f, e := os.Open(s.stagePath(id, u.ID))
 			if e != nil {
 				return e
 			}
-			for off, idx := int64(0), 0; off < u.Size; idx++ {
+			if _, e = f.Seek(pos.offset, io.SeekStart); e != nil {
+				f.Close()
+				return e
+			}
+			for off, idx := pos.offset, pos.index; off < u.Size; idx++ {
 				length := min(int64(ChunkSize), u.Size-off)
 				data := make([]byte, length)
 				_, e = io.ReadFull(f, data)
@@ -209,6 +225,24 @@ func (s *Server) packGroup(space, group string, ids []string) error {
 			f.Close()
 		}
 	}
+	// The unfinished tail remains in durable staging. Only complete packs are
+	// referenced in SQL, so the next round resumes after their committed chunks.
+	if !sealTail && current != nil && current.size < cap-ChunkSize {
+		if e := current.close(); e != nil {
+			return e
+		}
+		if e := os.Remove(s.packPath(current.id)); e != nil {
+			return e
+		}
+		writers = writers[:len(writers)-1]
+		kept := chunks[:0]
+		for _, c := range chunks {
+			if c.Pack != current.id {
+				kept = append(kept, c)
+			}
+		}
+		chunks = kept
+	}
 	for _, p := range writers {
 		if p.size > cap {
 			return fmt.Errorf("pack exceeds configured maximum")
@@ -238,9 +272,11 @@ func (s *Server) packGroup(space, group string, ids []string) error {
 		}
 	}
 	for _, id := range ids {
-		_, e = tx.Exec("UPDATE versions SET state='packed' WHERE batch=?", id)
+		_, e = tx.Exec(`UPDATE batches SET state='packed' WHERE id=? AND NOT EXISTS(
+SELECT 1 FROM uploads u WHERE u.batch=batches.id AND u.size !=
+(SELECT coalesce(sum(c.plain_size),0) FROM chunks c WHERE c.vid=u.vid))`, id)
 		if e == nil {
-			_, e = tx.Exec("UPDATE batches SET state='packed' WHERE id=?", id)
+			_, e = tx.Exec("UPDATE versions SET state='packed' WHERE batch=? AND EXISTS(SELECT 1 FROM batches WHERE id=? AND state='packed')", id, id)
 		}
 		if e != nil {
 			return e

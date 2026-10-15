@@ -10,7 +10,7 @@ import (
 )
 
 const schema = `
-CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,space TEXT NOT NULL,idem TEXT NOT NULL,group_key TEXT NOT NULL,sort_key TEXT NOT NULL,state TEXT NOT NULL,created INTEGER NOT NULL,manifest TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',UNIQUE(space,idem));
+CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,space TEXT NOT NULL,idem TEXT NOT NULL,group_key TEXT NOT NULL,sort_key TEXT NOT NULL,state TEXT NOT NULL,created INTEGER NOT NULL,manifest TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',flush_requested INTEGER NOT NULL DEFAULT 0,UNIQUE(space,idem));
 CREATE TABLE IF NOT EXISTS uploads(batch TEXT NOT NULL,object_id TEXT NOT NULL,vid TEXT NOT NULL,size INTEGER NOT NULL,sha TEXT NOT NULL,mime TEXT NOT NULL,base_version INTEGER NOT NULL,uploaded INTEGER NOT NULL DEFAULT 0,metadata TEXT NOT NULL,PRIMARY KEY(batch,object_id));
 CREATE TABLE IF NOT EXISTS versions(vid TEXT PRIMARY KEY,space TEXT NOT NULL,object_id TEXT NOT NULL,revision INTEGER NOT NULL,batch TEXT NOT NULL,size INTEGER NOT NULL,sha TEXT NOT NULL,mime TEXT NOT NULL,metadata TEXT NOT NULL,created INTEGER NOT NULL,state TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,checkpoint TEXT NOT NULL DEFAULT '',UNIQUE(space,object_id,revision));
 CREATE TABLE IF NOT EXISTS objects(space TEXT NOT NULL,object_id TEXT NOT NULL,vid TEXT NOT NULL,PRIMARY KEY(space,object_id));
@@ -23,6 +23,7 @@ CREATE INDEX IF NOT EXISTS batches_pending ON batches(state,created);
 CREATE INDEX IF NOT EXISTS versions_batch ON versions(batch);
 CREATE INDEX IF NOT EXISTS chunks_pack ON chunks(pack);
 CREATE INDEX IF NOT EXISTS versions_space ON versions(space,object_id);
+CREATE INDEX IF NOT EXISTS versions_checkpoint ON versions(state,checkpoint);
 `
 
 func openDB(path string) (*sql.DB, error) {
@@ -38,6 +39,14 @@ func openDB(path string) (*sql.DB, error) {
 		}
 	}
 	if e = migrateReadSessions(db); e != nil {
+		db.Close()
+		return nil, e
+	}
+	var hasFlush int
+	if e = db.QueryRow("SELECT count(*) FROM pragma_table_info('batches') WHERE name='flush_requested'").Scan(&hasFlush); e == nil && hasFlush == 0 {
+		_, e = db.Exec("ALTER TABLE batches ADD COLUMN flush_requested INTEGER NOT NULL DEFAULT 0")
+	}
+	if e != nil {
 		db.Close()
 		return nil, e
 	}

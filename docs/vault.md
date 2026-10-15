@@ -34,7 +34,7 @@ python3 examples/vault/local.py \
   --dir /tmp/my-vault-demo
 ```
 
-打开 `http://127.0.0.1:19400`，业务空间填写 `notes`，令牌读取 `/tmp/my-vault-demo/notes.token`。页面支持多文件提交、正文/图片/视频预览和读取状态。停止脚本会停止两个服务，数据保留在指定目录。
+打开 `http://127.0.0.1:19400`，业务空间填写 `notes`，令牌读取 `/tmp/my-vault-demo/notes.token`。页面支持多文件提交、正文/图片/视频预览、读取状态和手动云端同步。提交完成后内容保存在 NAS，点击“立即同步至云端”可以上传未满部分。停止脚本会停止两个服务，数据保留在指定目录。
 
 CLI 使用 Node 22+，无需 npm 依赖：
 
@@ -78,7 +78,9 @@ const batch = await vault.putBatch({
     { id: 'note-001-image', blob: imageFile, ifVersion: 0 }
   ]
 });
-// 此时本地事务已提交；请求远端持久化确认时再等待：
+// 本地事务已提交，可立即读取。默认持续聚合到满包。
+// 业务明确要求立即云端保存时，显式同步当前业务再等待：
+await vault.flush();
 await vault.waitRemote(batch.id);
 const articleBytes = await vault.read('note-001-json');
 for await (const bytes of vault.stream('video', {start: 0, end: 8 * 1024 * 1024})) {
@@ -105,19 +107,32 @@ Content-Type: application/json
 1. 创建批次，声明每个对象的 ID、长度、SHA-256、内容类型和 `if_version`。
 2. 以 `Upload-Offset` 上传最多 4 MiB 的片段。服务端先同步文件，再提交进度；重启后查询进度续传。
 3. 提交时校验全部内容摘要和全部版本条件。在一个 SQLite 事务里同时切换正文和附件引用。
-4. 后台按 `space + group + sort_key` 排列已提交批次，达到块容量或封存时限后自动加密打包。
+4. 后台在每个业务内按 `group + sort_key` 排列批次，容量足够时封存上传；未满部分继续保存在 NAS，重启后接着聚合。不同关联组可以共享业务包。
 5. OpenList 返回持久化回执后，更新远端状态并删除本地正文、附件暂存和 pack。
 
 创建对象使用 `if_version: 0`；更新必须填写当前数字 revision。任一对象版本冲突返回 409，整批不会部分提交。相同幂等键和相同清单返回原批次；相同键配不同清单返回 409。对象 ID 限制为 1–128 个字母、数字、下划线、点或短横线，首字符为字母或数字。
 
-分组建议：笔记的一次提交包含 JSON 和附件；同一本笔记本可以共用 group。相册使用日期/相册 ID 作为 group，拍摄时间作为 sort_key。整组能够放进一个 pack 时保持同块；过大的单个对象或关联组连续分块。封存时只排序当时已经提交的内容，后到的数据不会重新改写历史块。
+分组建议：笔记的一次提交包含 JSON 和附件；同一本笔记本可以共用 group。相册使用日期/相册 ID 作为 group，拍摄时间作为 sort_key。一个提交批次能够放进一个 pack 时保持同块；不同批次的相同 group 优先相邻，过大的对象连续分块。封存时只排序当时已经提交的内容，后到的数据不会重新改写历史块。
 
-默认每块上限 64 MiB，每个加密片段明文上限 4 MiB。格式头和认证信息计入块上限，因此实际有效载荷略少于 64 MiB。相互独立业务永不混装。重写对象生成新版本，旧版本和旧块保留；此版本没有自动物理垃圾回收。
+默认每块上限 64 MiB，每个加密片段明文上限 4 MiB。接近上限（预留一个片段的空间），或者无法容纳下一个关联批次时，当前包可以封存。格式头和认证信息计入块上限，因此实际有效载荷略少于 64 MiB。相互独立业务永不混装。重写对象生成新版本，旧版本和旧块保留；此版本没有自动物理垃圾回收。
+
+### 零散写入与手动同步
+
+`seal_seconds` 默认 **0**：关闭时间触发，不会因为等待 60 秒或服务重启而上传未满包。大文件已填满的部分可先上传，最后未满部分继续暂存；完成整批远端确认前保留该批次的原始暂存文件，供 NAS 读取与失败恢复。
+
+```http
+POST /v1/spaces/notes/flush
+Authorization: Bearer <notes write token>
+```
+
+返回 `202` 和 `{"batches":["待同步批次 ID"]}`。请求持久化后由后台执行，只影响该业务；重启后继续。JavaScript 使用 `vault.flush()`，Python 使用 `client.flush()`；需要确认完成时，等待返回批次达到 `remote`。CLI 的 `put` 保存到 NAS 后返回，`sync` 主动封存并等待云端确认。手动完整检查点也会封存所有业务的未满部分。
+
+只有显式配置正数 `seal_seconds` 才启用最长暂存时间。单独调用 `waitRemote()` 只观察状态，不会强制封存。暂存达到 `staging_mib` 上限时返回 507，由业务决定手动同步或稍后重试，不隐式上传小包。
 
 | 状态 | 含义与本地占用 |
 |---|---|
 | `uploading` | 未完成事务，对象尚未对其他读者可见 |
-| `accepted` | 本地事务已提交，暂存数据可立即读取 |
+| `accepted` | 本地事务已提交，暂存数据可立即读取；部分满包可能已上传，整批仍未完成 |
 | `packed` | 已封存加密，正在等待远端持久化确认 |
 | `remote` | 数据块和 OpenList 回执已确认，可删除本地数据副本 |
 | 对象 `checkpoint` 非空 | 此版本已包含在指定云端检查点中 |
@@ -159,7 +174,9 @@ OpenList 持久化 URL 缓存，重启继续复用。115 未给出明确过期�
 
 ## 统一云端检查点与恢复
 
-默认每小时自动生成检查点；也可以通过全局管理员令牌调用：
+默认每小时检查是否存在尚未备份的完整云端版本，有变化才生成自动检查点。自动检查点不封存未满部分；只保存已经完整远端确认的版本。若某对象的新版本仍在 NAS，恢复自动检查点时得到它之前的云端版本；只有本地版本的对象不包含在其中。
+
+手动创建完整检查点会主动封存所有已提交内容，使用全局管理员令牌调用：
 
 ```http
 POST /v1/checkpoints
@@ -168,7 +185,7 @@ Authorization: Bearer <server admin token>
 
 返回作业 ID。通过 `GET /v1/checkpoints` 获取最近 20 个作业，`GET /v1/checkpoints/{id}` 查询结果，`GET /v1/checkpoints/{id}/ticket` 下载恢复票据。
 
-检查点短暂停止变更请求，返回 `503 Retry-After: 3`；已提交数据全部封存并取得远端回执后，保存一致的 SQLite 快照和精确对象回执。未提交上传排除在快照外。元数据、密钥和回执一起加密后分块上传。读取目录和已提交内容仍可使用。SDK 自动重试短暂维护响应；账户长时间冷却会返回错误供业务展示。
+检查点短暂停止变更请求，返回 `503 Retry-After: 3`，保存一致的 SQLite 快照和精确对象回执。手动检查点等待全部已提交数据取得远端回执；自动检查点只选取完整云端版本，并重建对应的对象引用，保持 NAS 上的待上传内容不变。未提交上传排除在快照外。元数据、密钥和回执一起加密后分块上传。读取目录和已提交内容仍可使用。SDK 自动重试短暂维护响应；账户长时间冷却会返回错误供业务展示。
 
 只有检查点所有部分上传成功并完成本地状态提交后，作业才标记 `complete`。票据中的载荷使用 Base64 保持签名字节稳定；票据本身不包含恢复密钥。服务端也将票据保存到 `dir/checkpoints/{id}.json`。
 
@@ -192,6 +209,7 @@ weed vault -config=/etc/vault/restore.json
 |---|---|
 | `GET /health` | 服务探测 |
 | `GET /v1/spaces/{s}/status` | 本地/封存/远端批次数及后台错误 |
+| `POST /v1/spaces/{s}/flush` | 手动封存当前业务的未满部分；202 返回待同步 batches |
 | `POST /v1/spaces/{s}/tokens` | 签发短期业务令牌 |
 | `POST /v1/spaces/{s}/batches` | `{idempotency_key,group,sort_key,objects:[{id,size,sha256,content_type,if_version,metadata}]}` → `{id}` |
 | `GET /v1/spaces/{s}/batches/{b}` | 状态及每个对象已上传字节数 |
@@ -211,6 +229,8 @@ weed vault -config=/etc/vault/restore.json
 ## 验证
 
 [本地场景验证结果](vault-validation.md)。
+
+`test/vault/sparse.py` 另外覆盖默认不定时封存、32 个独立关联组聚合、70 MiB 大文件尾部保留、旧数据库升级、自动检查点保留暂存内容、按云端旧版本恢复、CLI 手动同步及终止后恢复。
 
 `test/vault/scenarios.py` 启动真实 Vault 和 OpenList 网关进程，唯一隔离层为磁盘 115 模拟器。包括 512 MiB 单文件、实际 JPEG/MP4、六个并发生产者、Python/Node/浏览器同时读取、两个浏览器标签页、断电式终止、上传失败、冷却、跨块解密和两个目录数据库完全丢失后的恢复。截图与结构化计数写入 `build/vault-test-results/`。
 

@@ -24,7 +24,7 @@ def secret(name,value):
         fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
         with os.fdopen(fd,'w') as f:f.write(value)
     return str(path)
-config=dict(listen=f'127.0.0.1:{args.vault_port}',public_url=f'http://127.0.0.1:{args.vault_port}',dir=str(root/'vault'),gateway=f'http://127.0.0.1:{args.gateway_port}/seaweedfs/v1',admin_token_file=secret('admin.token',secrets.token_urlsafe(32)),recovery_key_file=secret('recovery.key',base64.b64encode(secrets.token_bytes(32)).decode()),gateway_recovery_token_file=secret('openlist-recovery.token','local-lab-recovery-token-32-characters'),seal_seconds=5,checkpoint_seconds=300,spaces=[])
+config=dict(listen=f'127.0.0.1:{args.vault_port}',public_url=f'http://127.0.0.1:{args.vault_port}',dir=str(root/'vault'),gateway=f'http://127.0.0.1:{args.gateway_port}/seaweedfs/v1',admin_token_file=secret('admin.token',secrets.token_urlsafe(32)),recovery_key_file=secret('recovery.key',base64.b64encode(secrets.token_bytes(32)).decode()),gateway_recovery_token_file=secret('openlist-recovery.token','local-lab-recovery-token-32-characters'),seal_seconds=0,checkpoint_seconds=300,spaces=[])
 for space in ['notes','photos','files']:
     config['spaces'].append(dict(name=space,token_file=secret(space+'.token',secrets.token_urlsafe(32)),gateway_token_file=secret('openlist-'+space+'.token','local-lab-'+space+'-token')))
 (root/'config.json').write_text(json.dumps(config,indent=2))

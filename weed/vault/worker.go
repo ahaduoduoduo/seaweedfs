@@ -43,35 +43,14 @@ func (s *Server) process(ctx context.Context, force bool) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
-		var space, group string
-		var oldest, total int64
-		e := s.db.QueryRow("SELECT b.space,b.group_key,min(b.created),sum(u.size) FROM batches b JOIN uploads u ON u.batch=b.id WHERE b.state='accepted' GROUP BY b.space,b.group_key ORDER BY min(b.created) LIMIT 1").Scan(&space, &group, &oldest, &total)
+		space, ids, sealTail, e := s.packingPlan(force)
 		if errors.Is(e, sql.ErrNoRows) {
 			break
 		}
 		if e != nil {
 			return e
 		}
-		if !force && time.Now().Unix()-oldest < s.config.SealSeconds && total < (s.config.PackMiB<<20)-ChunkSize {
-			break
-		}
-		rows, e := s.db.Query("SELECT id FROM batches WHERE state='accepted' AND space=? AND group_key=? ORDER BY sort_key,created,id", space, group)
-		if e != nil {
-			return e
-		}
-		var ids []string
-		for rows.Next() {
-			var id string
-			if e = rows.Scan(&id); e != nil {
-				break
-			}
-			ids = append(ids, id)
-		}
-		e = errors.Join(e, rows.Err(), rows.Close())
-		if e != nil {
-			return e
-		}
-		if e = s.packGroup(space, group, ids); e != nil {
+		if e = s.packBatches(space, ids, sealTail); e != nil {
 			return e
 		}
 	}

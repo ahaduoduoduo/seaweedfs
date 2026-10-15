@@ -28,7 +28,7 @@ class Vault:
                     return result if raw else json.loads(result) if result else None
             except urllib.error.HTTPError as error:
                 delay = max(1, int(error.headers.get('Retry-After', 1)))
-                if (error.code != 429 and not (wait_cooldown and error.code == 503 and 'Retry-After' in error.headers)) or time.monotonic() - start + delay > 600:
+                if (error.code != 429 and not (error.code == 503 and 'Retry-After' in error.headers and (wait_cooldown or delay <= 5))) or time.monotonic() - start + delay > 600:
                     raise
                 error.close()
                 time.sleep(delay)
@@ -47,6 +47,9 @@ class Vault:
 
     def commit(self, batch):
         return self.request('POST', self.base + '/batches/' + batch + '/commit')
+
+    def flush(self):
+        return self.request('POST', self.base + '/flush')
 
     def wait_remote(self, batch):
         deadline = time.monotonic() + 600

@@ -57,6 +57,9 @@ jobs:
       - name: Multi-client Vault scenarios and browser interactions
         working-directory: seaweedfs
         run: python3 test/vault/scenarios.py --weed ../build/weed --openlist-lab ../build/openlist-lab
+      - name: Sparse collections and manual cloud sync
+        working-directory: seaweedfs
+        run: python3 test/vault/sparse.py --weed ../build/weed --openlist-lab ../build/openlist-lab
       - name: Package language-independent client examples
         run: tar -czf build/vault-clients.tar.gz -C seaweedfs examples/vault weed/vault/assets docs/vault.md
       - uses: actions/upload-artifact@v7

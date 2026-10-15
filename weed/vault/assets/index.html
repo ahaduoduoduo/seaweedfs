@@ -264,7 +264,7 @@
             >文件（支持多选）</label
           ><input id="upload" type="file" multiple />
           <div class="row" style="margin-top: 18px">
-            <span class="hint">提交后即可读取，后台自动封存。</span
+            <span class="hint">提交即保存至 NAS；满包后自动上传。</span
             ><button id="send" class="primary" disabled>上传并提交</button>
           </div>
           <progress id="progress" value="0" max="1" hidden></progress>
@@ -277,6 +277,7 @@
           <ul class="files" id="files">
             <li class="empty">连接空间后显示文件</li>
           </ul>
+          <button id="sync" disabled>立即同步至云端</button>
           <button id="more" hidden>加载更多</button>
         </div>
         <div class="card" id="previewCard" hidden>

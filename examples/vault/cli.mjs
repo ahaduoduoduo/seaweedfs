@@ -38,8 +38,10 @@ try {
       ],
     });
     console.log(JSON.stringify(batch));
-    await client.waitRemote(batch.id);
-    console.log(JSON.stringify(await client.object(id)));
+  } else if (command === "sync") {
+    const pending = await client.flush();
+    for (const id of pending.batches) await client.waitRemote(id);
+    console.log(JSON.stringify({ state: "remote", batches: pending.batches }));
   } else if (command === "get") {
     const [id, path, start, end] = args;
     if (!id || !path) throw new Error("get ID FILE [START] [END_EXCLUSIVE]");
@@ -70,7 +72,7 @@ try {
     } while (after);
   } else if (command === "plan") {
     console.log(JSON.stringify(await client.plan(args[0]), null, 2));
-  } else throw new Error("Commands: put, get, list, plan");
+  } else throw new Error("Commands: put, sync, get, list, plan");
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

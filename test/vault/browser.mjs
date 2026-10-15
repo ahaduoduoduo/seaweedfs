@@ -40,7 +40,13 @@ try {
   await page.locator("#upload").setInputFiles(config.text);
   await page.locator("#send").click();
   await page
-    .getByText("这组内容已保存至云端", { exact: true })
+    .getByText("已保存至 NAS，可立即读取；满包或手动同步后保存至云端", {
+      exact: true,
+    })
+    .waitFor();
+  await page.locator("#sync").click();
+  await page
+    .getByText("同步完成，内容已保存至云端", { exact: true })
     .waitFor({ timeout: 60000 });
   const other = await context.newPage();
   await other.goto(config.url);

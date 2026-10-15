@@ -165,6 +165,9 @@ export class VaultClient {
   batch(id) {
     return this.request(this.base + "/batches/" + id);
   }
+  flush() {
+    return this.request(this.base + "/flush", { method: "POST" });
+  }
   async waitRemote(id) {
     const start = Date.now();
     while (Date.now() - start < this.maxWaitMs) {

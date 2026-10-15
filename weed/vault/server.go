@@ -131,6 +131,7 @@ func (s *Server) routes(m *http.ServeMux) {
 		reply(w, 200, map[string]any{"ok": true, "protocol": "vault/v1"})
 	})
 	m.HandleFunc("GET /v1/spaces/{space}/status", s.status)
+	m.HandleFunc("POST /v1/spaces/{space}/flush", s.flush)
 	m.HandleFunc("POST /v1/spaces/{space}/tokens", s.issueToken)
 	m.HandleFunc("POST /v1/spaces/{space}/batches", s.createBatch)
 	m.HandleFunc("GET /v1/spaces/{space}/batches/{batch}", s.getBatch)
@@ -189,7 +190,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authorize(w, r, "read"); !ok {
 		return
 	}
-	out := map[string]any{"chunk_bytes": ChunkSize, "pack_bytes": s.config.PackMiB << 20, "maintenance": s.maintenance.Load()}
+	out := map[string]any{"chunk_bytes": ChunkSize, "pack_bytes": s.config.PackMiB << 20, "seal_seconds": s.config.SealSeconds, "maintenance": s.maintenance.Load()}
 	for _, state := range []string{"accepted", "packed", "remote"} {
 		var n int
 		s.db.QueryRow("SELECT count(*) FROM batches WHERE space=? AND state=?", r.PathValue("space"), state).Scan(&n)
