@@ -34,15 +34,43 @@ func responseError(resp *http.Response) error {
 // fetch follows a 302 explicitly: credentials are never sent to the CDN, even
 // when the simulator or provider uses the same hostname as the gateway.
 func (s *Storage) fetch(ctx context.Context, key string, offset, length, size int64) ([]byte, error) {
-	for attempt := 0; ; attempt++ {
-		data, err := s.fetchAttempt(ctx, key, offset, length, size, attempt > 0)
-		if !errors.Is(err, errExpiredLink) || attempt >= 2 {
-			return data, err
+	refreshes, busyRetries := 0, 0
+	for {
+		data, err := s.fetchAttempt(ctx, key, offset, length, size, refreshes > 0)
+		if errors.Is(err, errDownloadBusy) && busyRetries < 3 {
+			busyRetries++
+			timer := time.NewTimer(time.Duration(busyRetries*5) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+			continue
 		}
+		if errors.Is(err, errExpiredLink) && refreshes < 2 {
+			refreshes++
+			continue
+		}
+		return data, err
 	}
 }
 
 var errExpiredLink = errors.New("provider rejected cached download URL")
+var errDownloadBusy = errors.New("provider download busy; cached URL remains valid")
+
+// IsTransientDownloadBusy consumes only a small 403 error body. Real 115 can
+// reject one overlapping transfer with this code while the same URL still works.
+// It is neither evidence of expiry nor a reason to spend another link request.
+func IsTransientDownloadBusy(response *http.Response) bool {
+	if response.StatusCode != http.StatusForbidden {
+		return false
+	}
+	var body struct {
+		Message string `json:"message"`
+	}
+	return json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&body) == nil && body.Message == "115 pmt 3-2"
+}
 
 func (s *Storage) fetchAttempt(ctx context.Context, key string, offset, length, size int64, waitCooldown bool) ([]byte, error) {
 	var location string
@@ -100,6 +128,9 @@ func (s *Storage) fetchAttempt(ctx context.Context, key string, offset, length, 
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if IsTransientDownloadBusy(resp) {
+		return nil, errDownloadBusy
+	}
 	switch resp.StatusCode {
 	case 401, 403, 404, 410:
 		s.reportResult(ctx, key, location, resp.StatusCode)

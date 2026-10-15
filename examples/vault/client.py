@@ -61,8 +61,9 @@ class Vault:
         raise TimeoutError('cloud upload did not finish')
 
     def download_pack(self, pack):
-        for attempt in range(3):
-            lease = self.request('POST', self.base + '/packs/' + pack['id'] + '/lease', wait_cooldown=attempt > 0)
+        refreshes = busy_retries = 0
+        while True:
+            lease = self.request('POST', self.base + '/packs/' + pack['id'] + '/lease', wait_cooldown=refreshes > 0)
             status = 0
             try:
                 if lease['url']:
@@ -81,8 +82,23 @@ class Vault:
                 return data
             except urllib.error.HTTPError as error:
                 status = error.code
-                if status not in (401, 403, 404, 410) or attempt == 2:
+                busy = False
+                if status == 403:
+                    try:
+                        busy = json.loads(error.read(4096)).get('message') == '115 pmt 3-2'
+                    except (ValueError, AttributeError):
+                        pass
+                if busy:
+                    status = 0
+                    error.close()
+                    if busy_retries >= 3:
+                        raise RuntimeError('provider download remains busy; retry later') from None
+                    busy_retries += 1
+                    time.sleep(5 * busy_retries)
+                    continue
+                if status not in (401, 403, 404, 410) or refreshes >= 2:
                     raise
+                refreshes += 1
                 error.close()
                 # Finally reports the exact old URL before a paced reacquisition.
             finally:

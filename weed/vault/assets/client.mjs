@@ -74,7 +74,7 @@ export class VaultClient {
           1,
           Number(response.headers.get("Retry-After")) || 1,
         );
-        await response.body?.cancel();
+        if (!response.bodyUsed) await response.body?.cancel();
         await sleep(seconds * 1000);
         continue;
       }
@@ -206,6 +206,7 @@ export class VaultClient {
       }
       let proxy = this.transport === "proxy";
       let refreshes = 0;
+      let busyRetries = 0;
       while (true) {
         const lease = await this.request(
           this.base + "/packs/" + pack.id + "/lease",
@@ -260,17 +261,30 @@ export class VaultClient {
           }
           if (!fallback) {
             status = response.status;
+            let busy = !direct && status === 503 && response.headers.get("X-Vault-CDN-Busy") === "1";
+            if (direct && status === 403) {
+              try { busy = (await response.json()).message === "115 pmt 3-2"; } catch {}
+            }
+            if (busy) {
+              status = 0; // Do not invalidate a URL that is merely busy.
+              if (!response.bodyUsed) await response.body?.cancel();
+              if (busyRetries++ >= 3)
+                throw new VaultError(503, "provider download remains busy; retry later");
+              this.onEvent({ type: "cdn-busy", pack: pack.id });
+              await sleep(5000 * busyRetries);
+              continue;
+            }
             // The pack may have moved from local staging to the cloud after
             // this lease was issued. Release it and resolve the same pack again.
             if (!direct && status === 409) {
-              await response.body?.cancel();
+              if (!response.bodyUsed) await response.body?.cancel();
               continue;
             }
             // Expiry is discovered by using the URL, not by guessing a TTL.
             // Completing this session invalidates exactly its old URL. The
             // next acquisition waits for the shared API budget/cooldown.
             if ([401, 403, 404, 410].includes(status) && refreshes++ < 2) {
-              await response.body?.cancel();
+              if (!response.bodyUsed) await response.body?.cancel();
               this.onEvent({ type: "link-refresh", pack: pack.id });
               continue;
             }
@@ -321,7 +335,7 @@ export class VaultClient {
           raw: true,
         });
         if (start === end) {
-          await response.body?.cancel();
+          if (!response.bodyUsed) await response.body?.cancel();
           return;
         }
         for await (const part of response.body) yield part;

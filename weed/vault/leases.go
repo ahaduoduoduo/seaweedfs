@@ -11,6 +11,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/seaweedfs/seaweedfs/weed/storage/backend/openlist_backend"
 )
 
 func (s *Server) gatewayRequest(r *http.Request, space, method, path string, body io.Reader) (*http.Response, error) {
@@ -193,6 +195,12 @@ func (s *Server) proxyBytes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer res.Body.Close()
+	if openlist_backend.IsTransientDownloadBusy(res) {
+		w.Header().Set("Retry-After", "5")
+		w.Header().Set("X-Vault-CDN-Busy", "1")
+		fail(w, 503, "provider download busy; reuse this URL after waiting")
+		return
+	}
 	if res.StatusCode != 206 || res.Header.Get("Content-Range") != fmt.Sprintf("bytes 0-%d/%d", p.Size-1, p.Size) {
 		if rejectedLink(res.StatusCode) {
 			fail(w, res.StatusCode, "cloud download link rejected")

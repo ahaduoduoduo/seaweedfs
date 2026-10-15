@@ -16,7 +16,7 @@ args = parser.parse_args()
 args.keep = False
 lab = Lab(args)
 try:
-    request(lab.gateway+'/lab/control', 'POST', {'require_empty_user_agent': True})
+    request(lab.gateway+'/lab/control', 'POST', {'require_empty_user_agent': True, 'busy_downloads': 1})
     path = lab.fixture('ua-contract.bin', 9 << 20)
     batch = lab.put('files', 'ua-contract', [(lab.manifest('ua-contract', path), path)])
     lab.clients['files'].flush()
@@ -24,7 +24,7 @@ try:
     want = hashlib.sha256(path.read_bytes()).hexdigest()
     assert hashlib.sha256(b''.join(lab.clients['files'].read('ua-contract'))).hexdigest() == want
     initial = request(lab.gateway+'/lab/status')
-    cfg = dict(url=lab.url, token=lab.tokens['files'], want=want)
+    cfg = dict(url=lab.url, gateway=lab.gateway, token=lab.tokens['files'], want=want)
     config = lab.root/'ua-client.json'
     config.write_text(json.dumps(cfg))
     subprocess.run([os.environ.get('NODE', 'node'), str(Path(__file__).with_suffix('.mjs')), str(config)], check=True, timeout=120)
@@ -50,6 +50,7 @@ try:
     wait(complete)
     ticket = lab.root/'ticket.json'
     ticket.write_text(json.dumps(lab.admin_request('GET', '/v1/checkpoints/'+cp+'/ticket')))
+    request(lab.gateway+'/lab/control', 'POST', {'require_empty_user_agent': True, 'busy_downloads': 1})
     lab.stop(lab.vault)
     lab.config['dir'] = str(lab.root/'restored')
     lab.config_path.write_text(json.dumps(lab.config))
@@ -58,6 +59,15 @@ try:
     lab.clients['files'].cache.clear()
     assert hashlib.sha256(b''.join(lab.clients['files'].read('ua-contract'))).hexdigest() == want
     assert request(lab.gateway+'/lab/status')['user_agent_mismatches'] == 0
-    print('Download UA: Python, Node, browser proxy, cached restart, catalog migration and Go cloud restore passed', flush=True)
+    before = request(lab.gateway+'/lab/status')['links']
+    lab.clients['files'].cache.clear()
+    request(lab.gateway+'/lab/control', 'POST', {'require_empty_user_agent': True, 'busy_downloads': 9})
+    try:
+        b''.join(lab.clients['files'].read('ua-contract'))
+        raise AssertionError('persistent CDN busy should fail after bounded retries')
+    except RuntimeError as e:
+        assert 'remains busy' in str(e)
+    assert request(lab.gateway+'/lab/status')['links'] == before
+    print('Download UA and CDN busy: Python, Node, browser proxy, cached restart, schema migration, Go restore and bounded same-URL retries passed', flush=True)
 finally:
     lab.close()

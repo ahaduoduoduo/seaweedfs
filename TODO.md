@@ -1,6 +1,6 @@
 # OpenList tier development
 
-Updated: 2026-10-15
+Updated: 2026-10-16
 
 - [x] Fork SeaweedFS and add a Go OpenList exact-object storage backend.
 - [x] Add content-addressed upload receipts, bounded range cache and CDN failure reporting.
@@ -15,5 +15,6 @@ Updated: 2026-10-15
 - [x] Permit concurrent cached-URL downloads, recover unknown URL expiry with bounded refreshes, and migrate old singleton sessions.
 - [x] 2026-10-15: Accumulate sparse writes until packs fill, add per-business manual sync, and keep automatic checkpoints from sealing local tails.
 - [x] 2026-10-16: Preserve 115 download signature User-Agent requirements in native clients, browser ciphertext proxy and cloud restore.
+- [x] 2026-10-16: Retry explicit transient CDN busy responses with the same cached URL and bounded waits across native, browser and restore clients.
 - [ ] Add retention-aware orphan and deleted-pack physical reclamation.
 - [ ] Validate against a separately authorized staging 115 account before production deployment.

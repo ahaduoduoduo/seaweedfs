@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('vault_client', ROOT / 'examples/vault/client.py')
@@ -225,6 +226,18 @@ class Run:
         self.save()
 
     def cdn_transfers(self):
+        def audit():
+            host = self.config.get('audit_ssh_host')
+            if not host:
+                return None
+            script = """import sqlite3,json,hashlib
+c=sqlite3.connect('file:/volume1/docker/alist/data.db?mode=ro',uri=True)
+links=list(c.execute('select space,key,url from x_seaweed_links order by space,key'))
+print(json.dumps({'count':len(links),'url_fingerprint':hashlib.sha256(json.dumps(links).encode()).hexdigest(),'link_budget':list(c.execute('select account,next_read_at from x_seaweed_read_gates order by account'))}))
+"""
+            return json.loads(subprocess.run(['ssh', '-o', 'LogLevel=ERROR', host, 'python3 -'],
+                              input=script, text=True, capture_output=True, check=True).stdout)
+        before_audit = audit()
         c = self.client('files')
         plan = c.request('GET', c.base + '/objects/' + self.prefix + '-backup/plan')
         packs = list(plan['packs'].values())[:4]
@@ -242,7 +255,20 @@ class Run:
                 if isinstance(lease.get('download_user_agent'), str):
                     headers['User-Agent'] = lease['download_user_agent']
                 req = urllib.request.Request(lease['url'], headers=headers)
-                with urllib.request.urlopen(req, timeout=120) as response:
+                for busy_retries in range(4):
+                    try:
+                        response = urllib.request.urlopen(req, timeout=120)
+                        break
+                    except urllib.error.HTTPError as error:
+                        try:
+                            busy = error.code == 403 and json.loads(error.read(4096)).get('message') == '115 pmt 3-2'
+                        except (ValueError, AttributeError):
+                            busy = False
+                        if not busy or busy_retries == 3:
+                            raise
+                        error.close()
+                        time.sleep(5 * (busy_retries + 1))
+                with response:
                     status = response.status
                     ttfb = time.perf_counter()-start
                     hasher, count = hashlib.sha256(), 0
@@ -251,7 +277,8 @@ class Run:
                 elapsed = time.perf_counter()-start
                 assert status == 206 and count == pack['size'] and hasher.hexdigest() == pack['sha256']
                 return {'bytes': count, 'seconds': elapsed, 'ttfb_seconds': ttfb,
-                        'cached_url_acquisition_ms': resolve*1000, 'mib_per_second': count/(1 << 20)/elapsed}
+                        'cached_url_acquisition_ms': resolve*1000, 'mib_per_second': count/(1 << 20)/elapsed,
+                        'same_url_busy_retries': busy_retries}
             finally:
                 c.request('POST', c.base + '/leases/' + lease['id'] + '/complete', {'status': status})
         start = time.perf_counter()
@@ -260,6 +287,11 @@ class Run:
         seconds = time.perf_counter()-start
         self.report['four_concurrent_cached_urls'] = {'seconds': seconds, 'transfers': results,
             'aggregate_mib_per_second': sum(r['bytes'] for r in results)/(1 << 20)/seconds}
+        after_audit = audit()
+        if before_audit is not None:
+            assert before_audit == after_audit, 'cached transfers requested a replacement URL'
+            self.report['four_concurrent_cached_urls']['new_link_requests'] = 0
+            self.report['four_concurrent_cached_urls']['link_cache_and_budget_unchanged'] = True
 
 
 def main():

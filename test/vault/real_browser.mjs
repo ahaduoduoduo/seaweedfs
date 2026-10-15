@@ -9,7 +9,7 @@ const report = { pageErrors: [], cdnRequests: 0, proxyRequests: 0 };
 try {
   const context = await browser.newContext({ viewport: { width: 1320, height: 1000 } });
   context.on("request", r => {
-    if (new URL(r.url()).hostname.endsWith("115.com")) report.cdnRequests++;
+    if (/(^|\.)(115\.com|115cdn\.net)$/.test(new URL(r.url()).hostname)) report.cdnRequests++;
     if (/\/leases\/[^/]+\/bytes/.test(r.url())) report.proxyRequests++;
   });
   const page = await context.newPage();
