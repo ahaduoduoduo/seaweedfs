@@ -64,12 +64,20 @@ func (vs *VolumeServer) VolumeTierMoveDatToRemote(req *volume_server_pb.VolumeTi
 		return fmt.Errorf("destination %s not found, supported: %v", req.DestinationBackendName, keys)
 	}
 
-	// check whether the existing backend storage is the same as requested
-	// if same, skip
+	// OpenList's content-addressed upload is idempotent. Re-copying after a .vif
+	// commit failure returns the same receipt without another provider upload.
 	backendType, backendId := backend.BackendNameToTypeId(req.DestinationBackendName)
 	for _, remoteFile := range v.GetVolumeInfo().GetFiles() {
-		if remoteFile.BackendType == backendType && remoteFile.BackendId == backendId {
+		if remoteFile.BackendType == backendType && remoteFile.BackendId == backendId && backendType != "openlist" {
 			return fmt.Errorf("destination %s already exists", req.DestinationBackendName)
+		}
+	}
+	if backendType == "openlist" {
+		if !v.IsReadOnly() {
+			return fmt.Errorf("OpenList tier upload requires a read-only volume")
+		}
+		if err := diskFile.Sync(); err != nil {
+			return fmt.Errorf("sync volume before tier upload: %w", err)
 		}
 	}
 
@@ -93,7 +101,7 @@ func (vs *VolumeServer) VolumeTierMoveDatToRemote(req *volume_server_pb.VolumeTi
 	}
 
 	// save the remote file to volume tier info
-	v.GetVolumeInfo().Files = append(v.GetVolumeInfo().GetFiles(), &volume_server_pb.RemoteFile{
+	remote := &volume_server_pb.RemoteFile{
 		BackendType:  backendType,
 		BackendId:    backendId,
 		Key:          key,
@@ -101,9 +109,9 @@ func (vs *VolumeServer) VolumeTierMoveDatToRemote(req *volume_server_pb.VolumeTi
 		FileSize:     uint64(size),
 		ModifiedTime: uint64(modTime.Unix()),
 		Extension:    ".dat",
-	})
+	}
 
-	if err := v.SaveVolumeInfo(); err != nil {
+	if err := v.CommitRemoteFile(remote); err != nil {
 		return fmt.Errorf("volume %d failed to save remote file info: %v", v.Id, err)
 	}
 
@@ -112,7 +120,9 @@ func (vs *VolumeServer) VolumeTierMoveDatToRemote(req *volume_server_pb.VolumeTi
 	}
 
 	if !req.KeepLocalDatFile {
-		os.Remove(v.FileName(".dat"))
+		if err := os.Remove(v.FileName(".dat")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remote tier committed but local cleanup failed: %w", err)
+		}
 	}
 
 	return nil

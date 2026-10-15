@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/seaweedfs/seaweedfs/weed/glog"
@@ -114,4 +115,30 @@ func (v *Volume) SaveVolumeInfo() error {
 
 	return volume_info.SaveVolumeInfo(tierFileName, v.volumeInfo)
 
+}
+
+// CommitRemoteFile keeps the in-memory tier receipt consistent with the atomic
+// .vif write. A failed commit must remain retryable while the local .dat exists.
+func (v *Volume) CommitRemoteFile(remote *volume_server_pb.RemoteFile) error {
+	v.volumeInfoRWLock.Lock()
+	defer v.volumeInfoRWLock.Unlock()
+	previous := v.volumeInfo.Files
+	for _, existing := range previous {
+		if existing.BackendType == remote.BackendType && existing.BackendId == remote.BackendId {
+			if existing.Key != remote.Key {
+				return fmt.Errorf("destination %s already contains a different volume", remote.BackendName())
+			}
+			// A previous rename may have succeeded while directory fsync failed.
+			return v.SaveVolumeInfo()
+		}
+	}
+	v.volumeInfo.Files = append(previous, remote)
+	if err := v.SaveVolumeInfo(); err != nil {
+		var notDurable *volume_info.NotCrashDurableError
+		if !errors.As(err, &notDurable) {
+			v.volumeInfo.Files = previous
+		}
+		return err
+	}
+	return nil
 }

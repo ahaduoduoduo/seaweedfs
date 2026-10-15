@@ -1,0 +1,57 @@
+name: OpenList tier amd64
+on:
+  push:
+    branches: [codex/openlist-tier]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlist-tier-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOOS: linux
+      GOARCH: amd64
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: seaweedfs
+      - uses: actions/checkout@v7
+        with:
+          repository: ahaduoduoduo/autofilm-openlist
+          ref: fb21d47bdb4fa0b15c4b90f8d3a693d4a9016fa2
+          path: openlist
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.6'
+          cache-dependency-path: |
+            seaweedfs/go.sum
+            openlist/go.sum
+      - name: Test tier storage regressions
+        working-directory: seaweedfs
+        run: go test ./weed/storage/backend/openlist_backend ./weed/storage/volume_info ./weed/storage -run 'Test.*(Remote|Tier|ReadOnly|VolumeInfo)' -count=1
+      - name: Build linux amd64 binaries
+        run: |
+          mkdir -p build
+          cd seaweedfs
+          go build -trimpath -o ../build/weed ./weed
+          cd ../openlist
+          go build -trimpath -o ../build/openlist-lab ./cmd/seaweedfs-lab
+      - name: Real process integration with local 115 simulator
+        working-directory: seaweedfs
+        run: python3 test/openlist/integration.py --weed ../build/weed --gateway ../build/openlist-lab
+      - uses: actions/upload-artifact@v7
+        with:
+          name: seaweedfs-openlist-linux-amd64
+          path: build/
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: openlist-integration-failure-logs
+          path: /tmp/seaweed-openlist-e2e-*/*.log
+          retention-days: 7

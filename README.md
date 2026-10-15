@@ -1,5 +1,12 @@
 # SeaweedFS
 
+## OpenList / 115 infrastructure fork
+
+This fork adds a Go `openlist` cold-tier backend for immutable encrypted volumes,
+with local metadata, bounded read caching and account-paced 302 downloads.
+See [setup, consistency, local simulator testing and current scope](docs/openlist-tier.md).
+GitHub builds target linux/amd64; local ARM builds are supported.
+
 
 [![Slack](https://img.shields.io/badge/slack-purple)](https://join.slack.com/t/seaweedfs/shared_invite/enQtMzI4MTMwMjU2MzA3LTEyYzZmZWYzOGQ3MDJlZWMzYmI0OTE4OTJiZjJjODBmMzUxNmYwODg0YjY3MTNlMjBmZDQ1NzQ5NDJhZWI2ZmY)
 [![Twitter](https://img.shields.io/twitter/follow/seaweedfs.svg?style=social&label=Follow)](https://twitter.com/intent/follow?screen_name=seaweedfs)
