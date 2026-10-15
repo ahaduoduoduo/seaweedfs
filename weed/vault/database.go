@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS objects(space TEXT NOT NULL,object_id TEXT NOT NULL,v
 CREATE TABLE IF NOT EXISTS packs(id TEXT PRIMARY KEY,space TEXT NOT NULL,size INTEGER NOT NULL,sha TEXT NOT NULL,remote_key TEXT NOT NULL DEFAULT '',state TEXT NOT NULL,created INTEGER NOT NULL,retry_at INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS chunks(vid TEXT NOT NULL,idx INTEGER NOT NULL,pack TEXT NOT NULL,plain_offset INTEGER NOT NULL,plain_size INTEGER NOT NULL,cipher_offset INTEGER NOT NULL,cipher_size INTEGER NOT NULL,key TEXT NOT NULL,aad TEXT NOT NULL,PRIMARY KEY(vid,idx));
 CREATE TABLE IF NOT EXISTS checkpoints(id TEXT PRIMARY KEY,state TEXT NOT NULL,created INTEGER NOT NULL,error TEXT NOT NULL DEFAULT '',ticket TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS lease(id INTEGER PRIMARY KEY CHECK(id=1),lease_id TEXT NOT NULL,space TEXT NOT NULL,pack TEXT NOT NULL,owner TEXT NOT NULL,url TEXT NOT NULL,expires INTEGER NOT NULL,started INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS read_sessions(lease_id TEXT PRIMARY KEY,space TEXT NOT NULL,pack TEXT NOT NULL,owner TEXT NOT NULL,url TEXT NOT NULL,expires INTEGER NOT NULL,url_expires INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS read_sessions_expiry ON read_sessions(expires);
 CREATE INDEX IF NOT EXISTS batches_pending ON batches(state,created);
 CREATE INDEX IF NOT EXISTS versions_batch ON versions(batch);
 CREATE INDEX IF NOT EXISTS chunks_pack ON chunks(pack);
@@ -35,6 +36,10 @@ func openDB(path string) (*sql.DB, error) {
 			db.Close()
 			return nil, e
 		}
+	}
+	if e = migrateReadSessions(db); e != nil {
+		db.Close()
+		return nil, e
 	}
 	return db, nil
 }
@@ -114,4 +119,22 @@ func requireAffected(result sql.Result, err error) error {
 		return fmt.Errorf("record changed concurrently")
 	}
 	return nil
+}
+
+// Preserve existing read handles while removing the old singleton restriction.
+// Old cloud checkpoints pass through this migration during restore as well.
+func migrateReadSessions(db *sql.DB) error {
+	var old int
+	if e := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='lease'").Scan(&old); e != nil {
+		return e
+	}
+	if old == 0 {
+		return nil
+	}
+	tx, e := db.Begin()
+	if e != nil {
+		return e
+	}
+	_, e = tx.Exec("INSERT OR IGNORE INTO read_sessions(lease_id,space,pack,owner,url,expires) SELECT lease_id,space,pack,owner,url,expires FROM lease; DROP TABLE lease;")
+	return commit(tx, e)
 }

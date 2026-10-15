@@ -29,7 +29,14 @@ export class VaultClient {
   }
   async request(
     path,
-    { method = "GET", body, headers = {}, raw = false, retry = true } = {},
+    {
+      method = "GET",
+      body,
+      headers = {},
+      raw = false,
+      retry = true,
+      waitCooldown = false,
+    } = {},
   ) {
     const start = Date.now();
     while (true) {
@@ -55,9 +62,13 @@ export class VaultClient {
         (response.status === 429 ||
           (response.status === 503 &&
             Number(response.headers.get("Retry-After")) > 0 &&
-            Number(response.headers.get("Retry-After")) <= 5)) &&
+            (waitCooldown ||
+              Number(response.headers.get("Retry-After")) <= 5))) &&
         retry &&
-        Date.now() - start < this.maxWaitMs
+        Date.now() -
+          start +
+          Math.max(1, Number(response.headers.get("Retry-After")) || 1) * 1000 <
+          this.maxWaitMs
       ) {
         const seconds = Math.max(
           1,
@@ -191,10 +202,11 @@ export class VaultClient {
         return new Uint8Array(hit);
       }
       let proxy = this.transport === "proxy";
+      let refreshes = 0;
       while (true) {
         const lease = await this.request(
           this.base + "/packs/" + pack.id + "/lease",
-          { method: "POST" },
+          { method: "POST", waitCooldown: refreshes > 0 },
         );
         const controller = new AbortController();
         let status = 0;
@@ -241,6 +253,14 @@ export class VaultClient {
             // this lease was issued. Release it and resolve the same pack again.
             if (!direct && status === 409) {
               await response.body?.cancel();
+              continue;
+            }
+            // Expiry is discovered by using the URL, not by guessing a TTL.
+            // Completing this session invalidates exactly its old URL. The
+            // next acquisition waits for the shared API budget/cooldown.
+            if ([401, 403, 404, 410].includes(status) && refreshes++ < 2) {
+              await response.body?.cancel();
+              this.onEvent({ type: "link-refresh", pack: pack.id });
               continue;
             }
             if (!response.ok)

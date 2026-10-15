@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ahaduoduoduo/autofilm-openlist
-          ref: faa1eaa57df010f7543fa1a5749b1ea5c2efede9
+          ref: 1ed857756afa415804761f87b0d74a79c47c5060
           path: openlist
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:

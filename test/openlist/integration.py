@@ -194,20 +194,23 @@ metaLog.collection = "filer-meta"
         print("PASS: 45 files encrypted into 3 business packs; failed upload retained local data", flush=True)
 
         # Concurrent small-file reads share one remote range for the notes pack.
-        self.control(download_delay_ms=1250)
+        self.control(download_delay_ms=2500)
         before = self.stats()
         def check(item):
             path, expected = item
             status, _, body = request(self.filer + path)
             assert status == 200 and body == expected, (path, status, len(body))
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            # Start one cold read in each business before reading the rest.
+            first=[next(item for item in contents.items() if item[0].startswith('/'+space+'/')) for space in ('notes','photos','files')]
+            list(pool.map(check, first))
             list(pool.map(check, contents.items()))
         after = self.stats()
         assert after["downloads"] - before["downloads"] == 3, (before, after)
         assert after["lists"] == 0 and after["credential_leaks"] == 0, after
-        assert after["max_active_downloads"] == 1, after
+        assert after["max_active_downloads"] >= 2, after
         self.control()
-        starts = after["download_starts_ms"]
+        starts = after["link_request_starts_ms"]
         assert all(b-a >= 850 for a, b in zip(starts, starts[1:])), starts
         status, _, body = request(self.filer + "/notes/video.bin", headers={"Range": "bytes=123-999"})
         assert status == 206 and body == contents["/notes/video.bin"][123:1000]
@@ -248,16 +251,17 @@ metaLog.collection = "filer-meta"
         else:
             raise AssertionError("restarted volume did not register with master")
         assert self.stats()["downloads"] == 0 and self.stats()["links"] == 0, self.stats()
+        self.control(expire_links=True)
         check(("/notes/item.json", contents["/notes/item.json"]))
-        assert self.stats()["downloads"] == 1
-        print("PASS: persistent receipts and .idx/.vif recovery; restart made zero cloud requests", flush=True)
+        assert self.stats()["downloads"] == 2 and self.stats()["links"] == 1
+        print("PASS: restart made zero cloud requests; expired cached URL refreshed once and recovered the read", flush=True)
 
         # Cold pack 405 triggers a persistent circuit; subsequent failures stay local.
         self.control(cdn_status=405)
         status, _, _ = request(self.filer + "/photos/001.bin")
         assert status >= 400, status
         blocked_count = self.stats()["downloads"]
-        assert blocked_count == 2, self.stats()
+        assert blocked_count == 3, self.stats()
         status, headers, _ = self.object("files", orphan_key)
         assert status == 503 and int(headers["Retry-After"]) > 0
         assert self.stats()["downloads"] == blocked_count

@@ -19,6 +19,11 @@ try {
   await page.locator("#token").fill(config.tokens.notes);
   await page.locator("#connect").click();
   await page.getByText("已连接 notes", { exact: true }).waitFor();
+  await fetch(config.gateway + "/lab/control", {
+    method: "POST",
+    body: JSON.stringify({ expire_links: true }),
+    headers: { "Content-Type": "application/json" },
+  });
   await page
     .locator("#files li")
     .filter({ hasText: "article.json" })
@@ -99,7 +104,7 @@ try {
   assert.equal(b, want);
   const after = await (await fetch(config.gateway + "/lab/status")).json();
   assert.equal(
-    after.downloads - before.downloads,
+    after.successful_downloads - before.successful_downloads,
     2,
     "two tabs must share one photo pack download plus one CLI video pack",
   );
@@ -125,7 +130,11 @@ try {
   );
   await fetch(config.gateway + "/lab/control", {
     method: "POST",
-    body: JSON.stringify({ disable_cors: true, download_delay_ms: 100 }),
+    body: JSON.stringify({
+      disable_cors: true,
+      download_delay_ms: 100,
+      expire_links: true,
+    }),
     headers: { "Content-Type": "application/json" },
   });
   const fallbackContext = await browser.newContext();
@@ -145,6 +154,7 @@ try {
     return events;
   }, config);
   assert(events.includes("cors-fallback"));
+  assert(events.includes("link-refresh"));
   await fallbackContext.close();
   await fetch(config.gateway + "/lab/control", {
     method: "POST",

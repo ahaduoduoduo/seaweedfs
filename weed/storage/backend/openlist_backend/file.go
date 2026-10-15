@@ -52,35 +52,52 @@ func (f *File) ReadAt(p []byte, offset int64) (int, error) {
 	return n, nil
 }
 
-// One shared miss fetch prevents duplicate downloads. Consecutive small-file
-// reads in the same window need no further gateway or provider requests.
+// Coalesce only the same window. Different packs can download concurrently;
+// OpenList limits new URL resolutions independently of these transfers.
 func (s *Storage) readWindow(key string, start, length, size int64) ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	cacheKey := fmt.Sprintf("%s:%d", key, start)
-	if e := s.cache[cacheKey]; e != nil {
-		s.lru.MoveToFront(e)
-		return e.Value.(*entry).data, nil
+	if data := s.cachedWindow(cacheKey); data != nil {
+		return data, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-	defer cancel()
-	data, err := s.fetch(ctx, key, start, length, size)
+	result, err, _ := s.pending.Do(cacheKey, func() (any, error) {
+		if data := s.cachedWindow(cacheKey); data != nil {
+			return data, nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+		defer cancel()
+		data, err := s.fetch(ctx, key, start, length, size)
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for s.cacheBytes+int64(len(data)) > s.cacheLimit {
+			e := s.lru.Back()
+			if e == nil {
+				break
+			}
+			item := e.Value.(*entry)
+			delete(s.cache, item.key)
+			s.cacheBytes -= int64(len(item.data))
+			s.lru.Remove(e)
+		}
+		s.cache[cacheKey] = s.lru.PushFront(&entry{key: cacheKey, data: data})
+		s.cacheBytes += int64(len(data))
+		return data, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	for s.cacheBytes+int64(len(data)) > s.cacheLimit {
-		e := s.lru.Back()
-		if e == nil {
-			break
-		}
-		item := e.Value.(*entry)
-		delete(s.cache, item.key)
-		s.cacheBytes -= int64(len(item.data))
-		s.lru.Remove(e)
+	return result.([]byte), nil
+}
+func (s *Storage) cachedWindow(key string) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e := s.cache[key]; e != nil {
+		s.lru.MoveToFront(e)
+		return e.Value.(*entry).data
 	}
-	s.cache[cacheKey] = s.lru.PushFront(&entry{key: cacheKey, data: data})
-	s.cacheBytes += int64(len(data))
-	return data, nil
+	return nil
 }
 
 func (f *File) GetStat() (int64, time.Time, error) { return f.size, f.modified, nil }

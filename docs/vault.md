@@ -12,7 +12,7 @@ flowchart LR
   B --> C[SQLite: 版本、引用、密钥、状态]
   B -->|串行上传不可变密文块| D[OpenList: 精确对象接口]
   D --> E[115: notes / photos / files]
-  A -->|申请全局下载许可| B
+  A -->|获取可复用下载地址| B
   B -->|OpenList 302 地址| A
   A -->|下载大块并本地缓存、解密| E
 ```
@@ -141,17 +141,21 @@ Content-Type: application/json
 
 下载过程：
 
-1. 客户端先查本地密文缓存，命中则无需许可或云请求。
-2. `POST .../packs/{pack}/lease` 申请下载。服务端从 OpenList 获取 302 地址；其他业务或客户端已经下载时返回 429。
-3. 每个许可只执行一次下载，使用 `Range: bytes=0-{pack.size-1}` 获取完整大块；不能把每个小对象转换成单独的 CDN 请求。
-4. 按返回的间隔调用 `POST .../leases/{id}/renew`。下载完成或失败后调用 `POST .../leases/{id}/complete`，JSON `{"status":206}` 或实际失败状态码。
+1. 客户端先查本地密文缓存，命中则无需读取会话或云请求。
+2. `POST .../packs/{pack}/lease` 创建独立读取会话，返回 OpenList 的可复用 URL。已有其他下载不阻止创建会话。API 路径保留 `lease` 名称，但不再表示全局单下载许可。
+3. 使用 `Range: bytes=0-{pack.size-1}` 获取大块并缓存，减少逐个小对象读取。有效 URL 可以重复下载、范围读取，也可以与其他 URL 同时下载；同一授权会话允许重复或并发的密文中转。
+4. 按返回间隔调用 `POST .../leases/{id}/renew` 延长 NAS 会话；它不申请新 URL，也不延长 CDN URL 的有效期。完成后调用 `POST .../leases/{id}/complete`，JSON `{"status":206}` 或实际失败状态码。结束会话保留 OpenList URL 缓存。
 5. 验证长度和 SHA-256，缓存密文；根据计划解密所需片段。
 
-OpenList 的账户调度仍然生效，默认两个下载启动至少相隔 5 秒，所有业务共用同一账户预算。Vault 额外维护跨客户端的单下载许可，并持久化到 SQLite。403/405/429 下载失败会要求 OpenList 进入账户冷却。目录浏览、查询版本、获取计划、读取缓存都不读取 115 列表。
+### 链接失效与 API 请求调度
 
-浏览器 SDK 使用 256 MiB 有界缓存，IndexedDB 持久保存密文，Web Locks 合并同源多标签页对同块的下载。不同设备各自缓存，通过 NAS 许可避免并发。浏览器 CORS 不可用时，默认 `auto` 先结束当前许可，再申请新许可从 NAS 中转密文；解密仍在客户端进行。`direct` 强制直读，`proxy` 强制密文中转。中转只接受已签发许可中的固定 URL。
+OpenList 持久化 URL 缓存，重启继续复用。115 未给出明确过期时间时不猜测 TTL，`url_cached_until` 为 0，表示有效期未知。下载实际返回 401/403/404/410 后，客户端完成旧会话并报告状态，再申请新会话。服务端报告的是该会话的确切旧 URL；并发失败报告不会重复失效新 URL，多个客户端共享一次刷新结果。
 
-实际 115 下载域名的跨域配置没有在本地模拟测试中得到验证。原生 APP/CLI 不依赖浏览器 CORS。拿到地址的自定义客户端必须遵守许可协议；服务端无法阻止客户端绕过协议反复访问已经获知的 CDN 地址。
+只有新 URL 申请消耗 `read_interval_ms` 额度，默认间隔 5 秒；客户端收到 `429 Retry-After` 时等待。首次 403 允许刷新；新链接仍返回 403 则进入账户冷却，成功读取清除连续失败计数。405/429 直接报告风控并返回错误。一次读取最多刷新两次，JS/Python 默认等待上限每次 600 秒，Go 后端由 `timeout_seconds` 限制。冷却超过等待上限时返回错误，由调用方稍后重试。不能把网络中断或 CORS 失败一律视为 URL 过期。
+
+上传初始化、下载地址申请、离线任务提交等 115 API 继续共用既有账户限速器；上传同时遵守已有上传队列。有效 URL 的文件传输可以并行。目录浏览、查询版本、获取计划、缓存读取都不查询 115 列表。
+
+浏览器 SDK 使用 256 MiB 有界缓存，IndexedDB 持久保存密文，Web Locks 合并同源多标签页对同块的下载；不同设备拥有各自缓存。浏览器 CORS 不可用时，`auto` 使用 NAS 密文中转，仍复用同一个缓存 URL；若中转发现链接失效，则按上述协议刷新。解密始终在客户端。`direct` 强制直读，`proxy` 强制密文中转。中转只接受已签发会话中的固定 URL。
 
 ## 统一云端检查点与恢复
 
@@ -198,10 +202,10 @@ weed vault -config=/etc/vault/restore.json
 | `GET .../objects/{o}` | 当前对象元数据；`?version={version-id}` 读取历史版本 |
 | `DELETE .../objects/{o}` | `If-Match: <revision>`；创建墓碑版本 |
 | `GET .../objects/{o}/plan` | 标准加密读取计划；支持 version 参数 |
-| `POST .../packs/{p}/lease` | 一次大块下载许可和 OpenList 地址 |
-| `POST .../leases/{l}/renew` | 延长当前许可 |
-| `POST .../leases/{l}/complete` | 归还许可并报告下载状态 |
-| `GET .../leases/{l}/bytes` | 单次 NAS 密文中转 |
+| `POST .../packs/{p}/lease` | 独立读取会话和可复用 OpenList 地址 |
+| `POST .../leases/{l}/renew` | 延长当前 NAS 读取会话 |
+| `POST .../leases/{l}/complete` | 结束会话并报告下载状态 |
+| `GET .../leases/{l}/bytes` | 可重复的 NAS 密文中转 |
 | `/v1/checkpoints` | 管理员创建/查询检查点 |
 
 ## 验证

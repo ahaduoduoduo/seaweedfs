@@ -3,7 +3,7 @@
 ## OpenList / 115 infrastructure fork
 
 This fork adds a Go `openlist` cold-tier backend for immutable encrypted volumes,
-with local metadata, bounded read caching and account-paced 302 downloads.
+with local metadata, bounded read caching and persistent reusable URLs and account-paced link resolution.
 The `weed vault` service adds a language-independent HTTP object API, atomic attachment
 batches, relation-aware packing, direct client decryption, and encrypted recovery checkpoints.
 Start with the [Vault integration guide and runnable local demo](docs/vault.md).

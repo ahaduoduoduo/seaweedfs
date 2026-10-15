@@ -3,6 +3,8 @@ package openlist_backend
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,11 +12,6 @@ import (
 	"strconv"
 	"time"
 )
-
-// A single NAS volume-server process may host several business backends. Keep
-// their CDN transfers sequential too, even when a slow transfer outlasts the
-// gateway's minimum request interval. Waiting is cancellable.
-var downloadSlot = make(chan struct{}, 1)
 
 func (s *Storage) request(ctx context.Context, method, key string, body io.Reader) (*http.Request, error) {
 	digest, _, err := parseKey(key)
@@ -37,12 +34,17 @@ func responseError(resp *http.Response) error {
 // fetch follows a 302 explicitly: credentials are never sent to the CDN, even
 // when the simulator or provider uses the same hostname as the gateway.
 func (s *Storage) fetch(ctx context.Context, key string, offset, length, size int64) ([]byte, error) {
-	select {
-	case downloadSlot <- struct{}{}:
-		defer func() { <-downloadSlot }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	for attempt := 0; ; attempt++ {
+		data, err := s.fetchAttempt(ctx, key, offset, length, size, attempt > 0)
+		if !errors.Is(err, errExpiredLink) || attempt >= 2 {
+			return data, err
+		}
 	}
+}
+
+var errExpiredLink = errors.New("provider rejected cached download URL")
+
+func (s *Storage) fetchAttempt(ctx context.Context, key string, offset, length, size int64, waitCooldown bool) ([]byte, error) {
 	var location string
 	for {
 		req, err := s.request(ctx, http.MethodGet, key, nil)
@@ -55,7 +57,7 @@ func (s *Storage) fetch(ctx context.Context, key string, offset, length, size in
 			return nil, err
 		}
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusTooManyRequests || (waitCooldown && resp.StatusCode == http.StatusServiceUnavailable && resp.Header.Get("Retry-After") != "") {
 			seconds, err := strconv.ParseInt(resp.Header.Get("Retry-After"), 10, 64)
 			if err != nil || seconds < 1 || seconds > 3600 {
 				return nil, responseError(resp)
@@ -89,8 +91,12 @@ func (s *Storage) fetch(ctx context.Context, key string, offset, length, size in
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 403 || resp.StatusCode == 405 || resp.StatusCode == 429 {
-		s.reportFailure(ctx, key, resp.StatusCode)
+	switch resp.StatusCode {
+	case 401, 403, 404, 410:
+		s.reportResult(ctx, key, location, resp.StatusCode)
+		return nil, fmt.Errorf("%w (HTTP %d)", errExpiredLink, resp.StatusCode)
+	case 405, 429:
+		s.reportResult(ctx, key, location, resp.StatusCode)
 		return nil, fmt.Errorf("OpenList CDN blocked download (HTTP %d); account cooldown requested", resp.StatusCode)
 	}
 	wantRange := fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, size)
@@ -104,11 +110,13 @@ func (s *Storage) fetch(ctx context.Context, key string, offset, length, size in
 	if int64(len(data)) != length {
 		return nil, io.ErrUnexpectedEOF
 	}
+	s.reportResult(ctx, key, location, resp.StatusCode)
 	return data, nil
 }
 
-func (s *Storage) reportFailure(ctx context.Context, key string, status int) {
-	body := bytes.NewBufferString(fmt.Sprintf(`{"status":%d}`, status))
+func (s *Storage) reportResult(ctx context.Context, key, location string, status int) {
+	data, _ := json.Marshal(map[string]any{"status": status, "url": location})
+	body := bytes.NewReader(data)
 	req, err := s.request(ctx, http.MethodPost, key, body)
 	if err != nil {
 		return

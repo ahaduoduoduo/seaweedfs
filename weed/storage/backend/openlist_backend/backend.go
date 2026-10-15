@@ -21,6 +21,7 @@ import (
 
 	"github.com/seaweedfs/seaweedfs/weed/pb/volume_server_pb"
 	"github.com/seaweedfs/seaweedfs/weed/storage/backend"
+	"golang.org/x/sync/singleflight"
 )
 
 type factory struct{}
@@ -39,6 +40,7 @@ type Storage struct {
 	cache      map[string]*list.Element
 	lru        *list.List
 	cacheBytes int64
+	pending    singleflight.Group
 }
 
 func init()                                      { backend.BackendStorageFactories["openlist"] = factory{} }
@@ -94,7 +96,6 @@ func (factory) BuildStorage(config backend.StringProperties, prefix, id string) 
 		return nil, fmt.Errorf("OpenList cache_mib must cover a read window")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.MaxConnsPerHost = 2
 	return &Storage{properties: properties, endpoint: endpoint.String(), space: space, token: strings.TrimSpace(string(token)), timeout: time.Duration(timeout) * time.Second, maxObject: maxObject << 20, window: window << 20, cacheLimit: cache << 20, cache: map[string]*list.Element{}, lru: list.New(), client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 

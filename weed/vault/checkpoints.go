@@ -189,7 +189,7 @@ func (s *Server) checkpoint(ctx context.Context, id string) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	_, e = db.Exec("UPDATE versions SET checkpoint=?; DELETE FROM uploads WHERE batch IN (SELECT id FROM batches WHERE state IN ('uploading','aborted')); DELETE FROM batches WHERE state IN ('uploading','aborted'); DELETE FROM lease; DELETE FROM checkpoints WHERE state!='complete'; PRAGMA wal_checkpoint(TRUNCATE)", id)
+	_, e = db.Exec("UPDATE versions SET checkpoint=?; DELETE FROM uploads WHERE batch IN (SELECT id FROM batches WHERE state IN ('uploading','aborted')); DELETE FROM batches WHERE state IN ('uploading','aborted'); DELETE FROM read_sessions; DELETE FROM checkpoints WHERE state!='complete'; PRAGMA wal_checkpoint(TRUNCATE)", id)
 	e = errors.Join(e, db.Close())
 	if e != nil {
 		return nil, e

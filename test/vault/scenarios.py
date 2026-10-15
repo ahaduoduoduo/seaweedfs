@@ -189,6 +189,9 @@ def run(lab):
     plan=notes.request('GET',notes.base+'/objects/n000-json/plan')
     image_plan=notes.request('GET',notes.base+'/objects/n000-image/plan')
     assert plan['chunks'][0]['pack']==image_plan['chunks'][0]['pack'],'related note and image split unnecessarily'
+    print('2b. Cached URL reuse, parallel CDN reads, restart and expiration',flush=True)
+    from link_reuse import run as link_reuse
+    reuse_result=link_reuse(lab,request)
     print('3. Atomic version conflicts and business token isolation',flush=True)
     first=lab.put('notes','update-one',[(lab.manifest('n000-json',text,1,'application/json'),text)],'notebook-travel')
     conflict=notes.create('update-conflict',[lab.manifest('n000-json',text,1),lab.manifest('must-not-exist',image)])
@@ -218,8 +221,8 @@ def run(lab):
     browser_path=lab.root/'browser.json';browser_path.write_text(json.dumps(browser_config))
     subprocess.run([os.environ.get('NODE','node'),str(ROOT/'test/vault/browser.mjs'),str(browser_path)],check=True,timeout=300)
     stats=request(lab.gateway+'/lab/status')
-    assert stats['lists']==0 and stats['credential_leaks']==0 and stats['max_active_downloads']==1,stats
-    starts=stats['download_starts_ms'];assert all(b-a>=900 for a,b in zip(starts,starts[1:])),starts
+    assert stats['lists']==0 and stats['credential_leaks']==0,stats
+    starts=stats['link_request_starts_ms'];assert all(b-a>=900 for a,b in zip(starts,starts[1:])),starts
     print('6. Unified encrypted checkpoint; restore with both local catalogs removed',flush=True)
     cp=lab.admin_request('POST','/v1/checkpoints')['id']
     def finished():
@@ -259,7 +262,7 @@ def run(lab):
     print('8. Upload failure, restart recovery, CDN cooldown and signed-ticket rejection',flush=True)
     from faults import run as faults
     faults(lab,text,request,wait,expect,Vault)
-    report=dict(baseline_objects=60*2+lab.args.photos+3,objects=60*2+lab.args.photos+5,logical_bytes=(lab.args.photos+60)*image.stat().st_size+60*text.stat().st_size+backup.stat().st_size+video.stat().st_size+resume.stat().st_size,large_file_mib=lab.args.large_mib,video_bytes=video.stat().st_size,photo_bytes=image.stat().st_size,producers=6,metadata_bytes=metadata_size,before_restore=stats_before_restore,after_restore=restore_stats,scenarios=['resumable_crash','parallel_businesses','atomic_conflict','space_auth','range_decrypt','node_full_download','browser_ui','cross_tab_cache','cors_fallback','catalog_loss_restore','automatic_checkpoint','upload_failure_restart','cdn_cooldown_restart','tampered_ticket_rejected'])
+    report=dict(link_reuse=reuse_result,baseline_objects=60*2+lab.args.photos+3,objects=60*2+lab.args.photos+5,logical_bytes=(lab.args.photos+60)*image.stat().st_size+60*text.stat().st_size+backup.stat().st_size+video.stat().st_size+resume.stat().st_size,large_file_mib=lab.args.large_mib,video_bytes=video.stat().st_size,photo_bytes=image.stat().st_size,producers=6,metadata_bytes=metadata_size,before_restore=stats_before_restore,after_restore=restore_stats,scenarios=['resumable_crash','parallel_businesses','atomic_conflict','space_auth','range_decrypt','node_full_download','browser_ui','cross_tab_cache','cors_fallback','catalog_loss_restore','automatic_checkpoint','upload_failure_restart','cdn_cooldown_restart','tampered_ticket_rejected','cached_link_parallel_downloads','link_expiration_single_refresh','link_cache_restart','read_session_schema_upgrade','unknown_expiry_concurrent_refresh','bounded_link_refresh'])
     (lab.logdir/'report.json').write_text(json.dumps(report,indent=2))
     print(json.dumps({k:v for k,v in report.items() if k not in ['before_restore','after_restore']},indent=2),flush=True)
 

@@ -20,10 +20,14 @@ def run(lab, text, request, wait, expect, Vault):
     request(lab.gateway+'/lab/control', 'POST', {})
     files.wait_remote(batch)
     # A provider rejection must be reported by the client and persist a cooldown.
-    request(lab.gateway+'/lab/control', 'POST', {'cdn_status':405})
-    expect(405,lambda: b''.join(Vault(lab.url,'files',lab.tokens['files']).read('retry-object')))
+    request(lab.gateway+'/lab/control', 'POST', {'cdn_status':403})
     plan=files.request('GET',files.base+'/objects/retry-object/plan')
     pack=plan['chunks'][0]['pack']
+    from link_reuse import call
+    for _ in range(2):
+        lease=files.request('POST',files.base+'/packs/'+pack+'/lease')
+        assert call(lease['url'])[0]==403
+        files.request('POST',files.base+'/leases/'+lease['id']+'/complete',{'status':403})
     expect(503,lambda:files.request('POST',files.base+'/packs/'+pack+'/lease'))
     lab.stop(lab.vault,crash=True);lab.start_vault()
     expect(503,lambda:files.request('POST',files.base+'/packs/'+pack+'/lease'))
