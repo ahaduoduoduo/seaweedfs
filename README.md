@@ -4,7 +4,10 @@
 
 This fork adds a Go `openlist` cold-tier backend for immutable encrypted volumes,
 with local metadata, bounded read caching and account-paced 302 downloads.
-See [setup, consistency, local simulator testing and current scope](docs/openlist-tier.md).
+The `weed vault` service adds a language-independent HTTP object API, atomic attachment
+batches, relation-aware packing, direct client decryption, and encrypted recovery checkpoints.
+Start with the [Vault integration guide and runnable local demo](docs/vault.md).
+The original Filer/S3 tier adapter is documented [separately](docs/openlist-tier.md).
 GitHub builds target linux/amd64; local ARM builds are supported.
 
 

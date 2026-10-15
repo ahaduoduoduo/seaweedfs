@@ -11,11 +11,11 @@ concurrency:
 jobs:
   integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       GOOS: linux
       GOARCH: amd64
-      CGO_ENABLED: '1'
+      CGO_ENABLED: "1"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,14 +23,24 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ahaduoduoduo/autofilm-openlist
-          ref: fb21d47bdb4fa0b15c4b90f8d3a693d4a9016fa2
+          ref: faa1eaa57df010f7543fa1a5749b1ea5c2efede9
           path: openlist
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.26.6'
+          go-version: "1.26.6"
           cache-dependency-path: |
             seaweedfs/go.sum
             openlist/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install realistic scenario dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-cryptography
+          npm ci --prefix seaweedfs/test/vault
+          cd seaweedfs/test/vault
+          npx playwright install --with-deps chromium
       - name: Test tier storage regressions
         working-directory: seaweedfs
         run: go test ./weed/storage/backend/openlist_backend ./weed/storage/volume_info ./weed/storage -run 'Test.*(Remote|Tier|ReadOnly|VolumeInfo)' -count=1
@@ -44,6 +54,17 @@ jobs:
       - name: Real process integration with local 115 simulator
         working-directory: seaweedfs
         run: python3 test/openlist/integration.py --weed ../build/weed --gateway ../build/openlist-lab
+      - name: Multi-client Vault scenarios and browser interactions
+        working-directory: seaweedfs
+        run: python3 test/vault/scenarios.py --weed ../build/weed --openlist-lab ../build/openlist-lab
+      - name: Package language-independent client examples
+        run: tar -czf build/vault-clients.tar.gz -C seaweedfs examples/vault weed/vault/assets docs/vault.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: vault-scenario-results
+          path: seaweedfs/build/vault-test-results/
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: seaweedfs-openlist-linux-amd64

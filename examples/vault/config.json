@@ -1,0 +1,21 @@
+{
+  "listen": "0.0.0.0:9400",
+  "public_url": "https://vault.example.com",
+  "dir": "/data/vault",
+  "gateway": "http://openlist:5244/seaweedfs/v1",
+  "admin_token_file": "/etc/vault/admin.token",
+  "recovery_key_file": "/etc/vault/recovery.key",
+  "gateway_recovery_token_file": "/etc/vault/openlist-recovery.token",
+  "origins": ["https://notes.example.com", "https://photos.example.com"],
+  "pack_mib": 64,
+  "staging_mib": 8192,
+  "seal_seconds": 60,
+  "checkpoint_seconds": 3600,
+  "upload_ttl_seconds": 86400,
+  "lease_seconds": 120,
+  "spaces": [
+    {"name": "notes", "token_file": "/etc/vault/notes.token", "gateway_token_file": "/etc/vault/openlist-notes.token"},
+    {"name": "photos", "token_file": "/etc/vault/photos.token", "gateway_token_file": "/etc/vault/openlist-photos.token"},
+    {"name": "files", "token_file": "/etc/vault/files.token", "gateway_token_file": "/etc/vault/openlist-files.token"}
+  ]
+}

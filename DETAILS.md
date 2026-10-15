@@ -17,3 +17,16 @@ Updated: 2026-10-15
 - `.github/workflows/openlist-tier.yml`: linux/amd64 integration/build artifacts.
 - `.github/upstream-workflows/`: inactive upstream workflows retained for comparison.
 - [Configuration, protocol and limitations](docs/openlist-tier.md).
+
+## Vault integration
+
+- `weed/command/vault.go`: service and cloud restore command entry points.
+- `weed/vault/config.go`, `server.go`, `auth.go`: configuration, HTTP lifecycle, per-space tokens and CORS.
+- `database.go`, `batches.go`, `objects.go`: authoritative catalog, resumable uploads, atomic revisions and read plans.
+- `packing.go`, `worker.go`: AES-GCM needle packs, relation ordering, automatic sealing and serial remote upload.
+- `leases.go`: persistent cross-client download permit and optional ciphertext proxy.
+- `checkpoints.go`, `restore.go`: coordinated encrypted catalog/receipt checkpoints and offline restoration.
+- `weed/vault/assets/`: embedded browser demo and bounded streaming WebCrypto SDK.
+- `examples/vault/`: configuration, local launcher, Node CLI and independent Python protocol example.
+- `test/vault/`: multi-business large-object integration, browser interactions and failure scenarios.
+- [Language-independent API, deployment and recovery](docs/vault.md).

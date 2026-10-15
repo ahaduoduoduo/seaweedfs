@@ -144,3 +144,8 @@ weed_bin
 telemetry/server/telemetry-server
 .aider*
 /seaweed-volume/docs
+
+# Vault local client/test dependencies and Python bytecode
+/test/vault/node_modules/
+/examples/vault/__pycache__/
+/test/vault/__pycache__/

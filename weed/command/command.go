@@ -47,6 +47,8 @@ var Commands = []*Command{
 	cmdUpdate,
 	cmdUpload,
 	cmdVersion,
+	cmdVault,
+	cmdVaultRestore,
 	cmdVolume,
 	cmdWebDav,
 	cmdSftp,
