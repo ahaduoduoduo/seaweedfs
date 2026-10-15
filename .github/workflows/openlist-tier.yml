@@ -79,3 +79,32 @@ jobs:
           name: openlist-integration-failure-logs
           path: /tmp/seaweed-openlist-e2e-*/*.log
           retention-days: 7
+  image:
+    name: Publish verified Vault image (linux/amd64)
+    needs: integration
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: seaweedfs-openlist-linux-amd64
+          path: build
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: .
+          file: docker/Dockerfile.vault
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/ahaduoduoduo/seaweedfs-vault:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}

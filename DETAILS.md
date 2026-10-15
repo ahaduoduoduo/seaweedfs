@@ -30,5 +30,7 @@ Updated: 2026-10-15
 - `checkpoints.go`, `restore.go`: coordinated encrypted catalog/receipt checkpoints and offline restoration.
 - `weed/vault/assets/`: embedded browser demo and bounded streaming WebCrypto SDK.
 - `examples/vault/`: configuration, local launcher, Node CLI and independent Python protocol example.
+- `docker/Dockerfile.vault`, `examples/vault/compose.yaml`: non-root amd64 runtime image and persistent DSM service.
+- [DSM deployment and real-provider verification](docs/vault-dsm.md).
 - `test/vault/`: multi-business large-object integration, browser interactions and failure scenarios.
 - [Language-independent API, deployment and recovery](docs/vault.md).

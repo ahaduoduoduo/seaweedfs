@@ -1,0 +1,19 @@
+services:
+  vault:
+    image: ${VAULT_IMAGE:?set the immutable linux/amd64 image}
+    restart: unless-stopped
+    ports:
+      - "${VAULT_BIND_IP:-127.0.0.1}:${VAULT_PORT:-19400}:9400"
+    volumes:
+      - ./data:/data
+      - ./config:/etc/vault:ro
+    networks:
+      - autofilm
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  autofilm:
+    external: true

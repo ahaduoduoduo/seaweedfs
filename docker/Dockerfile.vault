@@ -1,0 +1,15 @@
+FROM ubuntu:24.04
+
+# The tested artifact is built on Ubuntu 24.04 with CGO SQLite enabled.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1001 vault && useradd --uid 1001 --gid vault --no-create-home vault \
+    && mkdir -p /data /etc/vault && chown vault:vault /data
+COPY --chmod=755 build/weed /usr/local/bin/weed
+USER 1001:1001
+VOLUME /data
+EXPOSE 9400
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:9400/health || exit 1
+ENTRYPOINT ["/usr/local/bin/weed"]
+CMD ["vault", "-config=/etc/vault/config.json"]

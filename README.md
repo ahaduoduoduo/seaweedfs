@@ -10,6 +10,8 @@ and encrypted recovery checkpoints.
 Start with the [Vault integration guide and runnable local demo](docs/vault.md).
 The original Filer/S3 tier adapter is documented [separately](docs/openlist-tier.md).
 GitHub builds target linux/amd64; local ARM builds are supported.
+Successful validation publishes an immutable `ghcr.io/ahaduoduoduo/seaweedfs-vault:sha-<commit>`
+image containing the tested binary. See the [DSM deployment guide](docs/vault-dsm.md).
 
 
 [![Slack](https://img.shields.io/badge/slack-purple)](https://join.slack.com/t/seaweedfs/shared_invite/enQtMzI4MTMwMjU2MzA3LTEyYzZmZWYzOGQ3MDJlZWMzYmI0OTE4OTJiZjJjODBmMzUxNmYwODg0YjY3MTNlMjBmZDQ1NzQ5NDJhZWI2ZmY)
