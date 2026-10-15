@@ -17,4 +17,4 @@ Updated: 2026-10-16
 - [x] 2026-10-16: Preserve 115 download signature User-Agent requirements in native clients, browser ciphertext proxy and cloud restore.
 - [x] 2026-10-16: Retry explicit transient CDN busy responses with the same cached URL and bounded waits across native, browser and restore clients.
 - [ ] Add retention-aware orphan and deleted-pack physical reclamation.
-- [ ] Validate against a separately authorized staging 115 account before production deployment.
+- [x] 2026-10-16: Deploy immutable linux/amd64 images on the authorized DSM and validate real 115 uploads, concurrent native/browser reads, cached-link reuse, 1080p playback and checkpoint restore.

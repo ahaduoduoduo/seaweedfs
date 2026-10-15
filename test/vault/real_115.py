@@ -192,7 +192,7 @@ class Run:
         self.read('files', 'backup', self.fixtures['backup'], client=files, start=(60 << 20)-128,
                   end=(60 << 20)+128, label='cross_pack_range_256B')
         browser_cfg = {'url': self.url, 'token_files': self.config['token_files'], 'prefix': self.prefix,
-                       'output': str(self.out), 'image': str(self.fixtures['image']),
+                       'output': str(self.out), 'image': str(self.fixtures['image']), 'video': str(self.fixtures['video']),
                        'article': str(self.out / 'note-000.json')}
         browser_path = self.out / 'browser-config.json'
         browser_path.write_text(json.dumps(browser_cfg)); browser_path.chmod(0o600)

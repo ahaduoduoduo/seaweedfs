@@ -255,4 +255,4 @@ python3 test/vault/scenarios.py --weed build/weed \
   --openlist-lab ../autofilm-openlist/build/openlist-lab
 ```
 
-测试需要 ffmpeg、Python 3.11+、Node 22+，以及约 4 GiB 可用临时空间。GitHub 仅执行 linux/amd64 构建。本地可使用 ARM；真实 NAS 和 115 的生产部署不属于本轮测试。
+测试需要 ffmpeg、Python 3.11+、Node 22+，以及约 4 GiB 可用临时空间。GitHub 仅执行 linux/amd64 构建。本地可使用 ARM。真实 NAS / 115 验收使用单独的显式配置，见 [DSM 部署与验收](vault-dsm.md)。

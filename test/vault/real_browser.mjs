@@ -48,6 +48,35 @@ try {
   await other.setViewportSize({ width: 390, height: 844 });
   await other.screenshot({ path: cfg.output + "/mobile.png", fullPage: true });
   assert.equal(await other.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  report.video = await other.evaluate(async input => {
+    const { VaultClient } = await import("/sdk/client.mjs");
+    const client = new VaultClient({ url: input.url, space: "files", token: input.token });
+    const bytes = await client.read(input.id);
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+    const video = document.createElement("video");
+    video.muted = true;
+    video.controls = true;
+    const url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+    try {
+      const loaded = new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = () => reject(new Error("video decoding failed"));
+      });
+      video.src = url;
+      document.querySelector("#preview").replaceChildren(video);
+      await loaded;
+      const seeked = new Promise(resolve => { video.onseeked = resolve; });
+      video.currentTime = 6;
+      await seeked;
+      await video.play();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      video.pause();
+      return { hash, width: video.videoWidth, height: video.videoHeight, duration: video.duration, playbackTime: video.currentTime };
+    } finally { video.remove(); URL.revokeObjectURL(url); }
+  }, { url: cfg.url, token: tokens.files, id: cfg.prefix + "-video" });
+  assert.equal(report.video.hash, createHash("sha256").update(await readFile(cfg.video)).digest("hex"));
+  assert.equal(report.video.height, 1080);
+  assert.ok(report.video.playbackTime > 6.2);
   await page.locator("#group").fill("real-browser-note");
   await page.locator("#upload").setInputFiles(cfg.article);
   await page.locator("#send").click();

@@ -11,7 +11,7 @@ assert.equal(createHash("sha256").update(await native.read("ua-contract")).diges
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();
-  await page.goto(cfg.url);
+  await page.goto(cfg.browser_url);
   await busyOnce();
   const result = await page.evaluate(async cfg => {
     const { VaultClient } = await import("/sdk/client.mjs");

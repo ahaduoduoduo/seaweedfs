@@ -16,6 +16,11 @@ args = parser.parse_args()
 args.keep = False
 lab = Lab(args)
 try:
+    browser_url = lab.url.replace('127.0.0.1', 'localhost')
+    lab.stop(lab.vault)
+    lab.config['origins'] = [browser_url]
+    lab.config_path.write_text(json.dumps(lab.config))
+    lab.start_vault()
     request(lab.gateway+'/lab/control', 'POST', {'require_empty_user_agent': True, 'busy_downloads': 1})
     path = lab.fixture('ua-contract.bin', 9 << 20)
     batch = lab.put('files', 'ua-contract', [(lab.manifest('ua-contract', path), path)])
@@ -24,7 +29,7 @@ try:
     want = hashlib.sha256(path.read_bytes()).hexdigest()
     assert hashlib.sha256(b''.join(lab.clients['files'].read('ua-contract'))).hexdigest() == want
     initial = request(lab.gateway+'/lab/status')
-    cfg = dict(url=lab.url, gateway=lab.gateway, token=lab.tokens['files'], want=want)
+    cfg = dict(url=lab.url, browser_url=browser_url, gateway=lab.gateway, token=lab.tokens['files'], want=want)
     config = lab.root/'ua-client.json'
     config.write_text(json.dumps(cfg))
     subprocess.run([os.environ.get('NODE', 'node'), str(Path(__file__).with_suffix('.mjs')), str(config)], check=True, timeout=120)

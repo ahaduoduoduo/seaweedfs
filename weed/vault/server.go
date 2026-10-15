@@ -222,7 +222,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Upload-Offset, If-Match")
-			w.Header().Set("Access-Control-Expose-Headers", "Upload-Offset, Retry-After, ETag")
+			w.Header().Set("Access-Control-Expose-Headers", "Upload-Offset, Retry-After, ETag, X-Vault-CDN-Busy")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		}
 		if r.Method == "OPTIONS" {
