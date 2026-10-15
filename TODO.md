@@ -14,5 +14,6 @@ Updated: 2026-10-15
 - [x] Add coordinated encrypted checkpoints and restore drills from cloud-only metadata.
 - [x] Permit concurrent cached-URL downloads, recover unknown URL expiry with bounded refreshes, and migrate old singleton sessions.
 - [x] 2026-10-15: Accumulate sparse writes until packs fill, add per-business manual sync, and keep automatic checkpoints from sealing local tails.
+- [x] 2026-10-16: Preserve 115 download signature User-Agent requirements in native clients, browser ciphertext proxy and cloud restore.
 - [ ] Add retention-aware orphan and deleted-pack physical reclamation.
 - [ ] Validate against a separately authorized staging 115 account before production deployment.

@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS objects(space TEXT NOT NULL,object_id TEXT NOT NULL,v
 CREATE TABLE IF NOT EXISTS packs(id TEXT PRIMARY KEY,space TEXT NOT NULL,size INTEGER NOT NULL,sha TEXT NOT NULL,remote_key TEXT NOT NULL DEFAULT '',state TEXT NOT NULL,created INTEGER NOT NULL,retry_at INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS chunks(vid TEXT NOT NULL,idx INTEGER NOT NULL,pack TEXT NOT NULL,plain_offset INTEGER NOT NULL,plain_size INTEGER NOT NULL,cipher_offset INTEGER NOT NULL,cipher_size INTEGER NOT NULL,key TEXT NOT NULL,aad TEXT NOT NULL,PRIMARY KEY(vid,idx));
 CREATE TABLE IF NOT EXISTS checkpoints(id TEXT PRIMARY KEY,state TEXT NOT NULL,created INTEGER NOT NULL,error TEXT NOT NULL DEFAULT '',ticket TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS read_sessions(lease_id TEXT PRIMARY KEY,space TEXT NOT NULL,pack TEXT NOT NULL,owner TEXT NOT NULL,url TEXT NOT NULL,expires INTEGER NOT NULL,url_expires INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS read_sessions(lease_id TEXT PRIMARY KEY,space TEXT NOT NULL,pack TEXT NOT NULL,owner TEXT NOT NULL,url TEXT NOT NULL,expires INTEGER NOT NULL,url_expires INTEGER NOT NULL DEFAULT 0,download_ua TEXT);
 CREATE INDEX IF NOT EXISTS read_sessions_expiry ON read_sessions(expires);
 CREATE INDEX IF NOT EXISTS batches_pending ON batches(state,created);
 CREATE INDEX IF NOT EXISTS versions_batch ON versions(batch);
@@ -45,6 +45,14 @@ func openDB(path string) (*sql.DB, error) {
 	var hasFlush int
 	if e = db.QueryRow("SELECT count(*) FROM pragma_table_info('batches') WHERE name='flush_requested'").Scan(&hasFlush); e == nil && hasFlush == 0 {
 		_, e = db.Exec("ALTER TABLE batches ADD COLUMN flush_requested INTEGER NOT NULL DEFAULT 0")
+	}
+	if e != nil {
+		db.Close()
+		return nil, e
+	}
+	var hasUA int
+	if e = db.QueryRow("SELECT count(*) FROM pragma_table_info('read_sessions') WHERE name='download_ua'").Scan(&hasUA); e == nil && hasUA == 0 {
+		_, e = db.Exec("ALTER TABLE read_sessions ADD COLUMN download_ua TEXT")
 	}
 	if e != nil {
 		db.Close()

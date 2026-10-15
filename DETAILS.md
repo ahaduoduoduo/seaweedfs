@@ -33,4 +33,6 @@ Updated: 2026-10-15
 - `docker/Dockerfile.vault`, `examples/vault/compose.yaml`: non-root amd64 runtime image and persistent DSM service.
 - [DSM deployment and real-provider verification](docs/vault-dsm.md).
 - `test/vault/`: multi-business large-object integration, browser interactions and failure scenarios.
+- `test/vault/real_115.py`, `real_browser.mjs`: opt-in real-provider acceptance, large uploads, concurrent clients, latency and browser evidence.
+- `test/vault/download_ua.py`, `download_ua.mjs`: real-process regression for provider signature headers, persistent URL reuse and browser fallback.
 - [Language-independent API, deployment and recovery](docs/vault.md).

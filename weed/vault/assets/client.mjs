@@ -224,6 +224,14 @@ export class VaultClient {
         let bytes;
         let fallback = false;
         try {
+          const constrainedUA = typeof lease.download_user_agent === "string";
+          const browser = typeof navigator !== "undefined" && !globalThis.process?.versions?.node;
+          if (lease.url && constrainedUA && browser && !proxy) {
+            if (this.transport === "direct")
+              throw new Error("Browser cannot set the required download User-Agent; use auto or proxy transport");
+            proxy = true;
+            this.onEvent({ type: "header-fallback", pack: pack.id });
+          }
           const direct = !!lease.url && !proxy;
           this.onEvent({
             type: "download",
@@ -236,7 +244,7 @@ export class VaultClient {
               direct ? lease.url : this.url + lease.proxy_url,
               {
                 headers: direct
-                  ? { Range: `bytes=0-${pack.size - 1}` }
+                  ? { Range: `bytes=0-${pack.size - 1}`, ...(constrainedUA ? { "User-Agent": lease.download_user_agent } : {}) }
                   : { Authorization: "Bearer " + this.token },
                 signal: controller.signal,
               },

@@ -2,6 +2,7 @@ package vault
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ func (s *Server) acquireLease(w http.ResponseWriter, r *http.Request) {
 	}
 	source := ""
 	var urlExpires int64
+	var downloadUserAgent *string
 	if p.State == "remote" {
 		res, e := s.gatewayRequest(r, p.Space, "GET", "/objects/"+digest(p.Key), nil)
 		if e != nil {
@@ -50,6 +52,12 @@ func (s *Server) acquireLease(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		source = res.Header.Get("Location")
+		if value := res.Header.Get("X-SeaweedFS-Download-User-Agent"); value != "" {
+			if e := json.Unmarshal([]byte(value), &downloadUserAgent); e != nil {
+				fail(w, 502, "invalid gateway download user agent")
+				return
+			}
+		}
 		urlExpires, _ = strconv.ParseInt(res.Header.Get("X-SeaweedFS-Link-Expires-At"), 10, 64)
 		u, e := url.Parse(source)
 		if e != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
@@ -64,13 +72,13 @@ func (s *Server) acquireLease(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, e.Error())
 		return
 	}
-	_, e = s.db.Exec("INSERT INTO read_sessions(lease_id,space,pack,owner,url,expires,url_expires) VALUES(?,?,?,?,?,?,?)", id, p.Space, p.ID, owner, source, expires, urlExpires)
+	_, e = s.db.Exec("INSERT INTO read_sessions(lease_id,space,pack,owner,url,expires,url_expires,download_ua) VALUES(?,?,?,?,?,?,?,?)", id, p.Space, p.ID, owner, source, expires, urlExpires, downloadUserAgent)
 	if e != nil {
 		fail(w, 500, e.Error())
 		return
 	}
 	proxy := "/v1/spaces/" + p.Space + "/leases/" + id + "/bytes"
-	reply(w, 201, map[string]any{"id": id, "url": source, "url_cached_until": urlExpires, "proxy_url": proxy, "expires": expires, "renew_after_seconds": max(int64(2), s.config.LeaseSeconds/3), "pack": p})
+	reply(w, 201, map[string]any{"id": id, "url": source, "url_cached_until": urlExpires, "download_user_agent": downloadUserAgent, "proxy_url": proxy, "expires": expires, "renew_after_seconds": max(int64(2), s.config.LeaseSeconds/3), "pack": p})
 }
 func (s *Server) validLease(r *http.Request, owner string) (string, string, error) {
 	var pack, source string
@@ -171,6 +179,14 @@ func (s *Server) proxyBytes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", p.Size-1))
+	var downloadUserAgent sql.NullString
+	if e := s.db.QueryRow("SELECT download_ua FROM read_sessions WHERE lease_id=? AND owner=?", r.PathValue("lease"), owner).Scan(&downloadUserAgent); e != nil {
+		fail(w, 409, "read session expired")
+		return
+	}
+	if downloadUserAgent.Valid {
+		req.Header.Set("User-Agent", downloadUserAgent.String)
+	}
 	res, e := s.client.Do(req)
 	if e != nil {
 		fail(w, 502, "cloud download failed")

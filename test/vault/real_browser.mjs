@@ -1,0 +1,63 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import assert from "node:assert/strict";
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+const cfg = JSON.parse(await readFile(process.argv[2], "utf8"));
+const tokens = Object.fromEntries(await Promise.all(Object.entries(cfg.token_files).map(async ([s, p]) => [s, (await readFile(p, "utf8")).trim()])));
+const browser = await chromium.launch({ headless: true });
+const report = { pageErrors: [], cdnRequests: 0, proxyRequests: 0 };
+try {
+  const context = await browser.newContext({ viewport: { width: 1320, height: 1000 } });
+  context.on("request", r => {
+    if (new URL(r.url()).hostname.endsWith("115.com")) report.cdnRequests++;
+    if (/\/leases\/[^/]+\/bytes/.test(r.url())) report.proxyRequests++;
+  });
+  const page = await context.newPage();
+  page.on("pageerror", e => report.pageErrors.push(e.message));
+  await page.goto(cfg.url);
+  assert.equal(await page.evaluate(() => isSecureContext && !!crypto.subtle), true);
+  await page.locator("#token").fill(tokens.notes);
+  await page.locator("#connect").click();
+  await page.getByText("已连接 notes", { exact: true }).waitFor();
+  await page.locator("#files li").filter({ hasText: "note-000.json" }).first().getByRole("button", { name: "读取", exact: true }).click();
+  await page.getByText("读取完成，在客户端解密", { exact: true }).waitFor({ timeout: 180000 });
+  assert.match(await page.locator("#preview").innerText(), /真实 115 收藏测试/);
+  await page.screenshot({ path: cfg.output + "/desktop.png", fullPage: true });
+  const other = await context.newPage();
+  await other.goto(cfg.url);
+  await page.evaluate(async () => (await import("/sdk/client.mjs")).clearCache());
+  const readPhoto = target => target.evaluate(async input => {
+    const { VaultClient } = await import("/sdk/client.mjs");
+    const events = [], start = performance.now();
+    const client = new VaultClient({ url: input.url, space: "photos", token: input.token, onEvent: e => events.push(e.type) });
+    const bytes = await client.read(input.id);
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+    return { hash, seconds: (performance.now()-start)/1000, events };
+  }, { url: cfg.url, token: tokens.photos, id: cfg.prefix + "-photo-005" });
+  const before = { cdn: report.cdnRequests, proxy: report.proxyRequests };
+  report.twoTabs = await Promise.all([readPhoto(page), readPhoto(other)]);
+  const want = createHash("sha256").update(await readFile(cfg.image)).digest("hex");
+  for (const r of report.twoTabs) assert.equal(r.hash, want);
+  report.twoTabTransfers = { cdn: report.cdnRequests-before.cdn, proxy: report.proxyRequests-before.proxy };
+  await other.locator("#space").fill("photos");
+  await other.locator("#token").fill(tokens.photos);
+  await other.locator("#connect").click();
+  await other.getByText("已连接 photos", { exact: true }).waitFor();
+  await other.getByRole("button", { name: "读取", exact: true }).first().click();
+  await other.locator("#preview img").waitFor({ timeout: 180000 });
+  await other.setViewportSize({ width: 390, height: 844 });
+  await other.screenshot({ path: cfg.output + "/mobile.png", fullPage: true });
+  assert.equal(await other.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.locator("#group").fill("real-browser-note");
+  await page.locator("#upload").setInputFiles(cfg.article);
+  await page.locator("#send").click();
+  await page.getByText("已保存至 NAS，可立即读取；满包或手动同步后保存至云端", { exact: true }).waitFor();
+  await page.locator("#sync").click();
+  await page.getByText("同步完成，内容已保存至云端", { exact: true }).waitFor({ timeout: 180000 });
+  report.uploadAndManualSync = true;
+  assert.deepEqual(report.pageErrors, []);
+  await writeFile(cfg.output + "/browser-report.json", JSON.stringify(report, null, 2));
+  console.log("Browser real-provider acceptance:", JSON.stringify(report));
+} finally {
+  await browser.close();
+}

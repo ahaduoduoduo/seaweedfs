@@ -46,6 +46,7 @@ var errExpiredLink = errors.New("provider rejected cached download URL")
 
 func (s *Storage) fetchAttempt(ctx context.Context, key string, offset, length, size int64, waitCooldown bool) ([]byte, error) {
 	var location string
+	var downloadUserAgent *string
 	for {
 		req, err := s.request(ctx, http.MethodGet, key, nil)
 		if err != nil {
@@ -75,6 +76,11 @@ func (s *Storage) fetchAttempt(ctx context.Context, key string, offset, length, 
 			return nil, responseError(resp)
 		}
 		location = resp.Header.Get("Location")
+		if value := resp.Header.Get("X-SeaweedFS-Download-User-Agent"); value != "" {
+			if err := json.Unmarshal([]byte(value), &downloadUserAgent); err != nil {
+				return nil, fmt.Errorf("invalid gateway download user agent")
+			}
+		}
 		break
 	}
 	u, err := url.Parse(location)
@@ -86,6 +92,9 @@ func (s *Storage) fetchAttempt(ctx context.Context, key string, offset, length, 
 		return nil, err
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
+	if downloadUserAgent != nil {
+		req.Header.Set("User-Agent", *downloadUserAgent)
+	}
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err

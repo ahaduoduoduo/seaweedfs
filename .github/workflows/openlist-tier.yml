@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ahaduoduoduo/autofilm-openlist
-          ref: 1ed857756afa415804761f87b0d74a79c47c5060
+          ref: ee1a56215a890fc3100ce5e92695e49d6aeb0c2d
           path: openlist
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -60,6 +60,9 @@ jobs:
       - name: Sparse collections and manual cloud sync
         working-directory: seaweedfs
         run: python3 test/vault/sparse.py --weed ../build/weed --openlist-lab ../build/openlist-lab
+      - name: Provider download signature headers and browser fallback
+        working-directory: seaweedfs
+        run: python3 test/vault/download_ua.py --weed ../build/weed --openlist-lab ../build/openlist-lab
       - name: Package language-independent client examples
         run: tar -czf build/vault-clients.tar.gz -C seaweedfs examples/vault weed/vault/assets docs/vault.md
       - uses: actions/upload-artifact@v7

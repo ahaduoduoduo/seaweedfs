@@ -67,7 +67,10 @@ class Vault:
             try:
                 if lease['url']:
                     # CDN requests never contain the Vault token.
-                    req = urllib.request.Request(lease['url'], headers={'Range': f"bytes=0-{pack['size']-1}"})
+                    headers = {'Range': f"bytes=0-{pack['size']-1}"}
+                    if isinstance(lease.get('download_user_agent'), str):
+                        headers['User-Agent'] = lease['download_user_agent']
+                    req = urllib.request.Request(lease['url'], headers=headers)
                     with urllib.request.urlopen(req, timeout=60) as response:
                         status = response.status
                         assert status == 206 and response.headers['Content-Range'] == f"bytes 0-{pack['size']-1}/{pack['size']}"
